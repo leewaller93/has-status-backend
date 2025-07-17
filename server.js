@@ -4,7 +4,10 @@ const cors = require('cors');
 const nodemailer = require('nodemailer');
 
 const app = express();
-app.use(cors({ origin: 'https://leewaller93.github.io' }));
+app.use(cors({ origin: [
+  'https://leewaller93.github.io',
+  'http://localhost:3000'
+], credentials: true }));
 app.use(express.json());
 
 // MongoDB/Mongoose Setup
