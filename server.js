@@ -11,6 +11,7 @@ app.use(cors({ origin: [
 app.use(express.json());
 
 // MongoDB/Mongoose Setup
+console.log('MongoDB URI:', process.env.MONGODB_URI);
 mongoose.connect(process.env.MONGODB_URI, {
   useNewUrlParser: true,
   useUnifiedTopology: true,
