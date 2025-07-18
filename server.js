@@ -65,15 +65,43 @@ async function seedDemoData() {
     console.log('Demo team seeded');
   }
   if ((await Phase.countDocuments()) === 0) {
-    const demoTasks = [
-      { phase: 'Outstanding', goal: 'General Ledger Review', need: '', comments: 'Audit the hospital’s existing general ledger to verify account balances, identify errors, and ensure GAAP compliance.', execute: 'One-Time', stage: 'Outstanding', commentArea: '', assigned_to: 'Alice Johnson' },
-      { phase: 'Outstanding', goal: 'Accrual Process Assessment', need: '', comments: 'Evaluate current accrual methods for revenue (e.g., unbilled patient services) and expenses (e.g., utilities, salaries) for accuracy and consistency.', execute: 'One-Time', stage: 'Outstanding', commentArea: '', assigned_to: 'Bob Smith' },
-      { phase: 'Outstanding', goal: 'Chart of Accounts Validation', need: '', comments: 'Review and align the hospital’s chart of accounts to ensure proper categorization for journal entries and financial reporting.', execute: 'One-Time', stage: 'Outstanding', commentArea: '', assigned_to: 'Carol Lee' },
-      { phase: 'Outstanding', goal: 'Prior Period Entry Analysis', need: '', comments: 'Examine historical journal entries to identify recurring issues or misclassifications, preparing correcting entries as needed.', execute: 'One-Time', stage: 'Outstanding', commentArea: '', assigned_to: 'David Kim' },
-      { phase: 'Outstanding', goal: 'Financial Statement Baseline Review', need: '', comments: 'Assess prior financial statements (balance sheet, income statement, cash flow statement) to establish a baseline for ongoing preparation and ensure compliance with GAAP and HIPAA.', execute: 'One-Time', stage: 'Outstanding', commentArea: '', assigned_to: 'Alice Johnson' }
+    const phases = ['Outstanding', 'Review/Discussion', 'In Process', 'Resolved'];
+    const teamMembers = await Team.find();
+    const tasks = [
+      { goal: 'General Ledger Review', comments: 'Audit the hospital’s existing general ledger to verify account balances, identify errors, and ensure GAAP compliance.', execute: 'One-Time' },
+      { goal: 'Accrual Process Assessment', comments: 'Evaluate current accrual methods for revenue (e.g., unbilled patient services) and expenses (e.g., utilities, salaries) for accuracy and consistency.', execute: 'One-Time' },
+      { goal: 'Chart of Accounts Validation', comments: 'Review and align the hospital’s chart of accounts to ensure proper categorization for journal entries and financial reporting.', execute: 'One-Time' },
+      { goal: 'Prior Period Entry Analysis', comments: 'Examine historical journal entries to identify recurring issues or misclassifications, preparing correcting entries as needed.', execute: 'One-Time' },
+      { goal: 'Financial Statement Baseline Review', comments: 'Assess prior financial statements (balance sheet, income statement, cash flow statement) to establish a baseline for ongoing preparation and ensure compliance with GAAP and HIPAA.', execute: 'One-Time' },
+      { goal: 'Revenue Accrual Entries', comments: 'Post journal entries for accrued revenue from unbilled patient services, using patient encounter data and estimated insurance reimbursements.', execute: 'Weekly' },
+      { goal: 'Expense Accrual Entries', comments: 'Record accrued expenses for incurred but unpaid costs (e.g., utilities, vendor services) based on historical data or pending invoices.', execute: 'Weekly' },
+      { goal: 'Cash Receipt Journal Entries', comments: 'Log journal entries for cash receipts from patients or insurers, debiting cash and crediting revenue or accounts receivable.', execute: 'Weekly' },
+      { goal: 'Preliminary Journal Review', comments: 'Review weekly journal entries for correct account coding, completeness, and supporting documentation (e.g., payment records).', execute: 'Weekly' },
+      { goal: 'Adjusting Entry Corrections', comments: 'Prepare and post adjusting entries to correct errors or discrepancies identified during weekly general ledger reviews.', execute: 'Weekly' },
+      { goal: 'Month-End Accrual Finalization', comments: 'Finalize and post accrual entries for revenue (e.g., unbilled procedures, pending claims) and expenses (e.g., salaries, leases) to align with GAAP.', execute: 'Monthly' },
+      { goal: 'Depreciation Journal Entries', comments: 'Record monthly depreciation entries for hospital assets (e.g., medical equipment, facilities) using established schedules.', execute: 'Monthly' },
+      { goal: 'Prepaid Expense Amortization', comments: 'Post journal entries to amortize prepaid expenses (e.g., insurance, software licenses) over their applicable periods.', execute: 'Monthly' },
+      { goal: 'Financial Statement Preparation', comments: 'Prepare monthly financial statements (balance sheet, income statement, cash flow statement) using journal entry data, ensuring accuracy and GAAP compliance.', execute: 'Monthly' },
+      { goal: 'Comprehensive Ledger and Financial Review', comments: 'Conduct a detailed review of all monthly journal entries and financial statements, verifying accuracy, accrual integrity, and compliance with GAAP and HIPAA.', execute: 'Monthly' },
+      { goal: 'Accrual Reversal Entries', comments: 'Post reversing entries for prior month’s accruals (e.g., paid invoices, settled claims) to prevent double-counting in the ledger.', execute: 'Monthly' }
     ];
+    // Randomly assign each task to a phase and a team member
+    const demoTasks = tasks.map((task, i) => {
+      const phase = phases[Math.floor(Math.random() * phases.length)];
+      const assigned_to = teamMembers.length > 0 ? teamMembers[i % teamMembers.length].username : 'team';
+      return {
+        phase,
+        goal: task.goal,
+        need: '',
+        comments: task.comments,
+        execute: task.execute,
+        stage: phase,
+        commentArea: '',
+        assigned_to
+      };
+    });
     await Phase.insertMany(demoTasks);
-    console.log('Demo phases seeded');
+    console.log('All demo phases seeded');
   }
   if ((await Project.countDocuments()) === 0) {
     await Project.create({ _id: 1, name: '' });
