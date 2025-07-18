@@ -88,13 +88,21 @@ async function seedDemoData() {
 seedDemoData();
 
 // --- API Endpoints ---
+
+// Health check endpoint for MongoDB connection
+app.get('/health', (req, res) => {
+  const state = mongoose.connection.readyState;
+  // 1 = connected, 0 = disconnected, 2 = connecting, 3 = disconnecting
+  res.json({ mongoState: state });
+});
+
 // Phases
 app.get('/api/phases', async (req, res) => {
   try {
     const phases = await Phase.find();
     res.json(phases);
   } catch (err) {
-    res.status(500).json({ error: err.message });
+      res.status(500).json({ error: err.message });
   }
 });
 
@@ -103,7 +111,7 @@ app.post('/api/phases', async (req, res) => {
     const phase = await Phase.create(req.body);
     res.json({ id: phase._id });
   } catch (err) {
-    res.status(500).json({ error: err.message });
+        res.status(500).json({ error: err.message });
   }
 });
 
@@ -112,7 +120,7 @@ app.put('/api/phases/:id', async (req, res) => {
     const updated = await Phase.findByIdAndUpdate(req.params.id, req.body, { new: true });
     res.json({ updated: !!updated });
   } catch (err) {
-    res.status(500).json({ error: err.message });
+        res.status(500).json({ error: err.message });
   }
 });
 
@@ -122,7 +130,7 @@ app.delete('/api/phases/:id', async (req, res) => {
     if (!deleted) return res.status(404).json({ error: 'Task not found' });
     res.json({ deleted: true });
   } catch (err) {
-    res.status(500).json({ error: err.message });
+      res.status(500).json({ error: err.message });
   }
 });
 
@@ -132,8 +140,8 @@ app.get('/api/team', async (req, res) => {
     const team = await Team.find();
     res.json(team);
   } catch (err) {
-    res.status(500).json({ error: err.message });
-  }
+      res.status(500).json({ error: err.message });
+    }
 });
 
 app.post('/api/invite', async (req, res) => {
@@ -157,7 +165,7 @@ app.patch('/api/team/:id/not-working', async (req, res) => {
     if (!member) return res.status(404).json({ error: 'Team member not found' });
     // Reassign all tasks
     await Phase.updateMany({ assigned_to: member.username }, { assigned_to: reassign_to || 'team' });
-    // Mark as not working
+      // Mark as not working
     await Team.findByIdAndUpdate(id, { not_working: true });
     res.json({ updated: true });
   } catch (err) {
