@@ -89,6 +89,20 @@ seedDemoData();
 
 // --- API Endpoints ---
 
+// Seed/reset endpoint for demo data
+app.post('/api/seed', async (req, res) => {
+  try {
+    await Team.deleteMany({});
+    await Phase.deleteMany({});
+    await Project.deleteMany({});
+    await WhiteboardState.deleteMany({});
+    await seedDemoData();
+    res.json({ seeded: true });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // Health check endpoint for MongoDB connection
 app.get('/health', (req, res) => {
   const state = mongoose.connection.readyState;
