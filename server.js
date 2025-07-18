@@ -64,6 +64,8 @@ async function seedDemoData() {
     await Team.insertMany(demoTeam);
     console.log('Demo team seeded');
   }
+  // Always clear phases before seeding
+  await Phase.deleteMany({});
   if ((await Phase.countDocuments()) === 0) {
     const phases = ['Outstanding', 'Review/Discussion', 'In Process', 'Resolved'];
     const teamMembers = await Team.find();
@@ -101,7 +103,7 @@ async function seedDemoData() {
       };
     });
     await Phase.insertMany(demoTasks);
-    console.log('All demo phases seeded');
+    console.log('All demo phases seeded:', demoTasks.length, 'tasks');
   }
   if ((await Project.countDocuments()) === 0) {
     await Project.create({ _id: 1, name: '' });
