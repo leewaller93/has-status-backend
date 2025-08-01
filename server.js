@@ -200,19 +200,24 @@ app.put('/api/phases/:id', async (req, res) => {
 
 // Mass update phases for a client
 app.patch('/api/phases/mass-update', async (req, res) => {
-  const { clientId, field, value, performedBy } = req.body;
+  const { clientId, field, value, taskIds, performedBy } = req.body;
   
   try {
     const updateData = {};
     updateData[field] = value;
     
-    const result = await Phase.updateMany({ clientId }, updateData);
+    let query = { clientId };
+    if (taskIds && taskIds.length > 0) {
+      query._id = { $in: taskIds };
+    }
+    
+    const result = await Phase.updateMany(query, updateData);
     
     // Log to audit trail
     const auditEntry = new AuditTrail({
       clientId,
       action: 'mass_update',
-      targetId: 'multiple',
+      targetId: taskIds ? taskIds.join(',') : 'all',
       targetName: `${field} update`,
       details: `Updated ${result.modifiedCount} tasks: ${field} = ${value}`,
       performedBy: performedBy || 'admin'
