@@ -198,6 +198,33 @@ app.put('/api/phases/:id', async (req, res) => {
   }
 });
 
+// Mass update phases for a client
+app.patch('/api/phases/mass-update', async (req, res) => {
+  const { clientId, field, value, performedBy } = req.body;
+  
+  try {
+    const updateData = {};
+    updateData[field] = value;
+    
+    const result = await Phase.updateMany({ clientId }, updateData);
+    
+    // Log to audit trail
+    const auditEntry = new AuditTrail({
+      clientId,
+      action: 'mass_update',
+      targetId: 'multiple',
+      targetName: `${field} update`,
+      details: `Updated ${result.modifiedCount} tasks: ${field} = ${value}`,
+      performedBy: performedBy || 'admin'
+    });
+    await auditEntry.save();
+    
+    res.json({ updated: true, count: result.modifiedCount });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 app.delete('/api/phases/:id', async (req, res) => {
   const { id } = req.params;
   const { clientId, performedBy } = req.query;
@@ -218,6 +245,30 @@ app.delete('/api/phases/:id', async (req, res) => {
     await auditEntry.save();
     
     res.json({ deleted: true });
+  } catch (err) {
+      res.status(500).json({ error: err.message });
+  }
+});
+
+// Clear all phases for a client
+app.delete('/api/phases', async (req, res) => {
+  const { clientId, performedBy } = req.query;
+  
+  try {
+    const deleted = await Phase.deleteMany({ clientId });
+    
+    // Log to audit trail
+    const auditEntry = new AuditTrail({
+      clientId,
+      action: 'clear_all_tasks',
+      targetId: 'all',
+      targetName: 'All Tasks',
+      details: `Cleared ${deleted.deletedCount} tasks for client ${clientId}`,
+      performedBy: performedBy || 'admin'
+    });
+    await auditEntry.save();
+    
+    res.json({ deleted: true, count: deleted.deletedCount });
   } catch (err) {
       res.status(500).json({ error: err.message });
   }
