@@ -40,6 +40,7 @@ async function seedDemoData() {
     
     // Seed team members
     const demoTeam = [
+      { username: 'PHG', email: 'phghas@phg.com', org: 'PHG' },
       { username: 'Alice Johnson', email: 'alice.johnson@demo.com', org: 'PHG' },
       { username: 'Bob Smith', email: 'bob.smith@demo.com', org: 'PHG' },
       { username: 'Carol Lee', email: 'carol.lee@demo.com', org: 'PHG' },
