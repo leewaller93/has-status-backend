@@ -82,16 +82,17 @@ const WhiteboardState = mongoose.model('WhiteboardState', WhiteboardStateSchema)
 
 // Seed Demo Data if Collections are Empty
 async function seedDemoData() {
-  if ((await Team.countDocuments()) === 0) {
-    const demoTeam = [
-      { username: 'Alice Johnson', email: 'alice.johnson@demo.com', org: 'PHG' },
-      { username: 'Bob Smith', email: 'bob.smith@demo.com', org: 'PHG' },
-      { username: 'Carol Lee', email: 'carol.lee@demo.com', org: 'PHG' },
-      { username: 'David Kim', email: 'david.kim@demo.com', org: 'PHG' }
-    ];
-    await Team.insertMany(demoTeam);
-    console.log('Demo team seeded');
-  }
+  // Always clear and reseed team members to ensure PHG is included
+  await Team.deleteMany({});
+  const demoTeam = [
+    { username: 'PHG', email: 'phghas@phg.com', org: 'PHG' },
+    { username: 'Alice Johnson', email: 'alice.johnson@demo.com', org: 'PHG' },
+    { username: 'Bob Smith', email: 'bob.smith@demo.com', org: 'PHG' },
+    { username: 'Carol Lee', email: 'carol.lee@demo.com', org: 'PHG' },
+    { username: 'David Kim', email: 'david.kim@demo.com', org: 'PHG' }
+  ];
+  await Team.insertMany(demoTeam);
+  console.log('Demo team seeded with PHG member');
   // Always clear phases before seeding
   await Phase.deleteMany({});
   if ((await Phase.countDocuments()) === 0) {
