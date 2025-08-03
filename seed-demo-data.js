@@ -38,13 +38,9 @@ async function seedDemoData() {
     await Phase.deleteMany({});
     await Team.deleteMany({});
     
-    // Seed team members for demo client
+    // Seed team members for demo client - ONLY PHG
     const demoTeam = [
-      { clientId: 'demo', username: 'PHG', email: 'phghas@phg.com', org: 'PHG' },
-      { clientId: 'demo', username: 'Alice Johnson', email: 'alice.johnson@demo.com', org: 'PHG' },
-      { clientId: 'demo', username: 'Bob Smith', email: 'bob.smith@demo.com', org: 'PHG' },
-      { clientId: 'demo', username: 'Carol Lee', email: 'carol.lee@demo.com', org: 'PHG' },
-      { clientId: 'demo', username: 'David Kim', email: 'david.kim@demo.com', org: 'PHG' }
+      { clientId: 'demo', username: 'PHG', email: 'phghas@phg.com', org: 'PHG' }
     ];
     await Team.insertMany(demoTeam);
     console.log('Demo team seeded successfully');
@@ -63,7 +59,7 @@ async function seedDemoData() {
         execute: 'Setup phase',
         stage: 'Planning',
         commentArea: 'Ready to begin',
-        assigned_to: teamMembers[0].username
+        assigned_to: 'PHG'
       },
       {
         clientId: 'demo',
@@ -74,7 +70,7 @@ async function seedDemoData() {
         execute: 'Development phase',
         stage: 'Implementation',
         commentArea: 'In progress',
-        assigned_to: teamMembers[1].username
+        assigned_to: 'PHG'
       }
     ];
     
