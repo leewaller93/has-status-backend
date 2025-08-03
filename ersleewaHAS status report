@@ -1,0 +1,5 @@
+[33md6fb618[m[33m ([m[1;36mHEAD[m[33m -> [m[1;32mmain[m[33m, [m[1;31morigin/main[m[33m)[m Backend update - Force backend update with correct seed data - only PHG team member
+[33me37383a[m Backend update - Fix seed data to only include PHG team member
+[33m329321b[m Backend update - Add PHG team member auto-creation for new clients and fix PHG Standard Template assignment
+[33mc007547[m Backend update - Testing clean deployment system after GitHub cleanup
+[33m20a4e03[m Backend update - Testing dr1 PowerShell shorthand

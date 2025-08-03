@@ -84,6 +84,7 @@ const WhiteboardState = mongoose.model('WhiteboardState', WhiteboardStateSchema)
 async function seedDemoData() {
   if ((await Team.countDocuments()) === 0) {
     const demoTeam = [
+      { username: 'PHGHAS', email: 'phghas@phg.com', org: 'PHG' },
       { username: 'Alice Johnson', email: 'alice.johnson@demo.com', org: 'PHG' },
       { username: 'Bob Smith', email: 'bob.smith@demo.com', org: 'PHG' },
       { username: 'Carol Lee', email: 'carol.lee@demo.com', org: 'PHG' },
@@ -118,7 +119,9 @@ async function seedDemoData() {
     // Randomly assign each task to a phase and a team member
     const demoTasks = tasks.map((task, i) => {
       const phase = phases[Math.floor(Math.random() * phases.length)];
-      const assigned_to = teamMembers.length > 0 ? teamMembers[i % teamMembers.length].username : 'team';
+      // Prefer PHGHAS for assignment, fallback to other team members
+      const phghasMember = teamMembers.find(m => m.username === 'PHGHAS');
+      const assigned_to = phghasMember ? 'PHGHAS' : (teamMembers.length > 0 ? teamMembers[i % teamMembers.length].username : 'team');
       return {
         phase,
         goal: task.goal,
@@ -332,23 +335,13 @@ app.delete('/api/team/:id', async (req, res) => {
     }
     
     // Check if team member has assigned tasks
-    const phases = await Phase.find({ clientId });
-    let hasAssignedTasks = false;
-    let assignedTasks = [];
-    
-    for (const phase of phases) {
-      for (const task of phase.items) {
-        if (task.assigned_to === teamMember.username) {
-          hasAssignedTasks = true;
-          assignedTasks.push({
-            phaseId: phase._id,
-            taskId: task._id,
-            taskName: task.goal,
-            phaseName: phase.name
-          });
-        }
-      }
-    }
+    const tasks = await Phase.find({ clientId, assigned_to: teamMember.username });
+    let hasAssignedTasks = tasks.length > 0;
+    let assignedTasks = tasks.map(task => ({
+      taskId: task._id,
+      taskName: task.goal,
+      phaseName: task.stage
+    }));
     
     if (hasAssignedTasks && !reassignTo) {
       // Return tasks that need to be reassigned
@@ -362,18 +355,10 @@ app.delete('/api/team/:id', async (req, res) => {
     
     // If reassignment is provided, update all tasks
     if (reassignTo && hasAssignedTasks) {
-      for (const phase of phases) {
-        let updated = false;
-        for (const task of phase.items) {
-          if (task.assigned_to === teamMember.username) {
-            task.assigned_to = reassignTo;
-            updated = true;
-          }
-        }
-        if (updated) {
-          await phase.save();
-        }
-      }
+      await Phase.updateMany(
+        { clientId, assigned_to: teamMember.username },
+        { assigned_to: reassignTo }
+      );
     }
     
     // Delete the team member
@@ -443,10 +428,10 @@ app.post('/api/clients', async (req, res) => {
     
     await newClient.save();
     
-    // Automatically create PHG team member for new client
+    // Automatically create PHGHAS team member for new client
     const phgTeamMember = new Team({
       clientId: clientId,
-      username: 'PHG',
+      username: 'PHGHAS',
       email: 'phghas@phg.com',
       org: 'PHG'
     });
