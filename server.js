@@ -322,6 +322,42 @@ app.patch('/api/team/:id/not-working', async (req, res) => {
   }
 });
 
+// Update team member
+app.put('/api/team/:id', async (req, res) => {
+  const { id } = req.params;
+  const { username, email, clientId } = req.body;
+  
+  try {
+    const teamMember = await Team.findOne({ _id: id, clientId });
+    if (!teamMember) {
+      return res.status(404).json({ error: 'Team member not found' });
+    }
+    
+    // Update the team member
+    const updatedMember = await Team.findByIdAndUpdate(
+      id, 
+      { username, email },
+      { new: true }
+    );
+    
+    // Update all tasks assigned to this member with the new username
+    if (username !== teamMember.username) {
+      await Phase.updateMany(
+        { clientId, assigned_to: teamMember.username },
+        { assigned_to: username }
+      );
+    }
+    
+    res.json({ 
+      success: true, 
+      updatedMember,
+      tasksUpdated: username !== teamMember.username
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // Delete team member with task reassignment logic
 app.delete('/api/team/:id', async (req, res) => {
   const { id } = req.params;
