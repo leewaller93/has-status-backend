@@ -232,6 +232,49 @@ app.patch('/api/phases/mass-update', async (req, res) => {
   }
 });
 
+// Unified mass update phases for a client (multiple fields)
+app.patch('/api/phases/unified-mass-update', async (req, res) => {
+  const { clientId, stage, assigned_to, need, taskIds, performedBy } = req.body;
+  
+  try {
+    const updateData = {};
+    if (stage) updateData.stage = stage;
+    if (assigned_to) updateData.assigned_to = assigned_to;
+    if (need) updateData.need = need;
+    
+    // Check if at least one field is being updated
+    if (Object.keys(updateData).length === 0) {
+      return res.status(400).json({ error: 'No fields to update' });
+    }
+    
+    let query = { clientId };
+    if (taskIds && taskIds.length > 0) {
+      query._id = { $in: taskIds };
+    }
+    
+    const result = await Phase.updateMany(query, updateData);
+    
+    // Log to audit trail
+    const updateDetails = Object.entries(updateData)
+      .map(([field, value]) => `${field} = ${value}`)
+      .join(', ');
+    
+    const auditEntry = new AuditTrail({
+      clientId,
+      action: 'unified_mass_update',
+      targetId: taskIds ? taskIds.join(',') : 'all',
+      targetName: 'Multiple fields update',
+      details: `Updated ${result.modifiedCount} tasks: ${updateDetails}`,
+      performedBy: performedBy || 'admin'
+    });
+    await auditEntry.save();
+    
+    res.json({ updated: true, count: result.modifiedCount, fieldsUpdated: Object.keys(updateData) });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 app.delete('/api/phases/:id', async (req, res) => {
   const { id } = req.params;
   const { clientId, performedBy } = req.query;
