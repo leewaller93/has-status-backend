@@ -51,7 +51,6 @@ const Project = mongoose.model('Project', ProjectSchema);
 
 // Enhanced Client Schema for storing client information
 const ClientSchema = new mongoose.Schema({
-  clientCode: { type: String, required: true, unique: true },
   name: { type: String, required: true },
   mainContact: { type: String, default: '' },
   phoneNumber: { type: String, default: '' },
@@ -61,7 +60,7 @@ const ClientSchema = new mongoose.Schema({
     validator: function(v) {
       return /^[A-Z0-9]{3}$/.test(v);
     },
-    message: 'FAC Code must be exactly 3 alphanumeric characters'
+    message: 'Client Code must be exactly 3 alphanumeric characters'
   }},
   filePath: { type: String, default: '' },
   color: { type: String, default: '#2563eb' },
@@ -503,18 +502,15 @@ app.get('/api/project', async (req, res) => {
 // Enhanced Client Management
 app.post('/api/clients', async (req, res) => {
   try {
-    const { clientCode, name, mainContact, phoneNumber, city, state, facCode, filePath, color } = req.body;
+    const { name, mainContact, phoneNumber, city, state, facCode, filePath, color } = req.body;
     
     // Check if client already exists
-    const existingClient = await Client.findOne({ 
-      $or: [{ clientCode }, { facCode }] 
-    });
+    const existingClient = await Client.findOne({ facCode });
     if (existingClient) {
-      return res.status(400).json({ error: 'Client Code or FAC Code already exists' });
+      return res.status(400).json({ error: 'Client Code already exists' });
     }
     
     const newClient = new Client({
-      clientCode,
       name,
       mainContact,
       phoneNumber,
@@ -529,7 +525,7 @@ app.post('/api/clients', async (req, res) => {
     
     // Automatically create PHGHAS team member for new client
     const phgTeamMember = new Team({
-      clientId: clientCode,
+      clientId: facCode,
       username: 'PHGHAS',
       email: 'phghas@phg.com',
       org: 'PHG'
@@ -554,9 +550,7 @@ app.get('/api/clients', async (req, res) => {
 
 app.get('/api/clients/:clientId', async (req, res) => {
   try {
-    const client = await Client.findOne({ 
-      $or: [{ clientCode: req.params.clientId }, { facCode: req.params.clientId }] 
-    });
+    const client = await Client.findOne({ facCode: req.params.clientId });
     if (!client) {
       return res.status(404).json({ error: 'Client not found' });
     }
@@ -570,9 +564,7 @@ app.put('/api/clients/:clientId', async (req, res) => {
   try {
     const { name, mainContact, phoneNumber, city, state, facCode, filePath, color } = req.body;
     const updatedClient = await Client.findOneAndUpdate(
-      { 
-        $or: [{ clientCode: req.params.clientId }, { facCode: req.params.clientId }] 
-      },
+      { facCode: req.params.clientId },
       { name, mainContact, phoneNumber, city, state, facCode, filePath, color },
       { new: true }
     );
@@ -587,9 +579,7 @@ app.put('/api/clients/:clientId', async (req, res) => {
 
 app.delete('/api/clients/:clientId', async (req, res) => {
   try {
-    const deletedClient = await Client.findOneAndDelete({ 
-      $or: [{ clientCode: req.params.clientId }, { facCode: req.params.clientId }] 
-    });
+    const deletedClient = await Client.findOneAndDelete({ facCode: req.params.clientId });
     if (!deletedClient) {
       return res.status(404).json({ error: 'Client not found' });
     }
