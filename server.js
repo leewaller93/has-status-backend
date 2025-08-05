@@ -49,18 +49,35 @@ const ProjectSchema = new mongoose.Schema({
 });
 const Project = mongoose.model('Project', ProjectSchema);
 
-// New Client Schema for storing client information
+// Enhanced Client Schema for storing client information
 const ClientSchema = new mongoose.Schema({
-  clientId: { type: String, required: true, unique: true },
+  clientCode: { type: String, required: true, unique: true },
   name: { type: String, required: true },
+  mainContact: { type: String, default: '' },
+  phoneNumber: { type: String, default: '' },
+  city: { type: String, default: '' },
+  state: { type: String, default: '' },
+  facCode: { type: String, required: true, unique: true, validate: {
+    validator: function(v) {
+      return /^[A-Z0-9]{3}$/.test(v);
+    },
+    message: 'FAC Code must be exactly 3 alphanumeric characters'
+  }},
+  filePath: { type: String, default: '' },
   color: { type: String, default: '#2563eb' },
-  city: { type: String, required: true },
-  state: { type: String, required: true },
-  contactPerson: { type: String, required: true },
-  phoneNumber: { type: String, required: true },
   createdAt: { type: Date, default: Date.now }
 });
 const Client = mongoose.model('Client', ClientSchema);
+
+// Internal Team Schema for managing team members
+const InternalTeamSchema = new mongoose.Schema({
+  name: { type: String, required: true },
+  email: { type: String, required: true, unique: true },
+  teamName: { type: String, default: 'PHG' },
+  assignedClients: [{ type: String }], // Array of FAC codes
+  createdAt: { type: Date, default: Date.now }
+});
+const InternalTeam = mongoose.model('InternalTeam', InternalTeamSchema);
 
 // Audit Trail Schema for tracking deletions
 const AuditTrailSchema = new mongoose.Schema({
@@ -483,32 +500,36 @@ app.get('/api/project', async (req, res) => {
   }
 });
 
-// Client Management
+// Enhanced Client Management
 app.post('/api/clients', async (req, res) => {
   try {
-    const { clientId, name, color, city, state, contactPerson, phoneNumber } = req.body;
+    const { clientCode, name, mainContact, phoneNumber, city, state, facCode, filePath, color } = req.body;
     
     // Check if client already exists
-    const existingClient = await Client.findOne({ clientId });
+    const existingClient = await Client.findOne({ 
+      $or: [{ clientCode }, { facCode }] 
+    });
     if (existingClient) {
-      return res.status(400).json({ error: 'Client ID already exists' });
+      return res.status(400).json({ error: 'Client Code or FAC Code already exists' });
     }
     
     const newClient = new Client({
-      clientId,
+      clientCode,
       name,
-      color,
+      mainContact,
+      phoneNumber,
       city,
       state,
-      contactPerson,
-      phoneNumber
+      facCode,
+      filePath,
+      color
     });
     
     await newClient.save();
     
     // Automatically create PHGHAS team member for new client
     const phgTeamMember = new Team({
-      clientId: clientId,
+      clientId: clientCode,
       username: 'PHGHAS',
       email: 'phghas@phg.com',
       org: 'PHG'
@@ -533,7 +554,9 @@ app.get('/api/clients', async (req, res) => {
 
 app.get('/api/clients/:clientId', async (req, res) => {
   try {
-    const client = await Client.findOne({ clientId: req.params.clientId });
+    const client = await Client.findOne({ 
+      $or: [{ clientCode: req.params.clientId }, { facCode: req.params.clientId }] 
+    });
     if (!client) {
       return res.status(404).json({ error: 'Client not found' });
     }
@@ -545,10 +568,12 @@ app.get('/api/clients/:clientId', async (req, res) => {
 
 app.put('/api/clients/:clientId', async (req, res) => {
   try {
-    const { name, color, city, state, contactPerson, phoneNumber } = req.body;
+    const { name, mainContact, phoneNumber, city, state, facCode, filePath, color } = req.body;
     const updatedClient = await Client.findOneAndUpdate(
-      { clientId: req.params.clientId },
-      { name, color, city, state, contactPerson, phoneNumber },
+      { 
+        $or: [{ clientCode: req.params.clientId }, { facCode: req.params.clientId }] 
+      },
+      { name, mainContact, phoneNumber, city, state, facCode, filePath, color },
       { new: true }
     );
     if (!updatedClient) {
@@ -562,9 +587,86 @@ app.put('/api/clients/:clientId', async (req, res) => {
 
 app.delete('/api/clients/:clientId', async (req, res) => {
   try {
-    const deletedClient = await Client.findOneAndDelete({ clientId: req.params.clientId });
+    const deletedClient = await Client.findOneAndDelete({ 
+      $or: [{ clientCode: req.params.clientId }, { facCode: req.params.clientId }] 
+    });
     if (!deletedClient) {
       return res.status(404).json({ error: 'Client not found' });
+    }
+    res.json({ success: true });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Internal Team Management
+app.post('/api/internal-team', async (req, res) => {
+  try {
+    const { name, email, teamName, assignedClients } = req.body;
+    
+    // Check if team member already exists
+    const existingMember = await InternalTeam.findOne({ email });
+    if (existingMember) {
+      return res.status(400).json({ error: 'Team member with this email already exists' });
+    }
+    
+    const newTeamMember = new InternalTeam({
+      name,
+      email,
+      teamName,
+      assignedClients
+    });
+    
+    await newTeamMember.save();
+    res.json({ success: true, teamMember: newTeamMember });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.get('/api/internal-team', async (req, res) => {
+  try {
+    const teamMembers = await InternalTeam.find().sort({ createdAt: -1 });
+    res.json(teamMembers);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.get('/api/internal-team/:email', async (req, res) => {
+  try {
+    const teamMember = await InternalTeam.findOne({ email: req.params.email });
+    if (!teamMember) {
+      return res.status(404).json({ error: 'Team member not found' });
+    }
+    res.json(teamMember);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.put('/api/internal-team/:id', async (req, res) => {
+  try {
+    const { name, email, teamName, assignedClients } = req.body;
+    const updatedMember = await InternalTeam.findByIdAndUpdate(
+      req.params.id,
+      { name, email, teamName, assignedClients },
+      { new: true }
+    );
+    if (!updatedMember) {
+      return res.status(404).json({ error: 'Team member not found' });
+    }
+    res.json({ success: true, teamMember: updatedMember });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.delete('/api/internal-team/:id', async (req, res) => {
+  try {
+    const deletedMember = await InternalTeam.findByIdAndDelete(req.params.id);
+    if (!deletedMember) {
+      return res.status(404).json({ error: 'Team member not found' });
     }
     res.json({ success: true });
   } catch (err) {
