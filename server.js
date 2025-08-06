@@ -567,7 +567,11 @@ app.get('/api/clients', async (req, res) => {
 
 app.get('/api/clients/:clientId', async (req, res) => {
   try {
-    const client = await Client.findOne({ facCode: req.params.clientId });
+    // Try to find by facCode first, then by clientId for backward compatibility
+    let client = await Client.findOne({ facCode: req.params.clientId });
+    if (!client) {
+      client = await Client.findOne({ clientId: req.params.clientId });
+    }
     if (!client) {
       return res.status(404).json({ error: 'Client not found' });
     }
@@ -580,11 +584,19 @@ app.get('/api/clients/:clientId', async (req, res) => {
 app.put('/api/clients/:clientId', async (req, res) => {
   try {
     const { name, mainContact, phoneNumber, city, state, facCode, filePath, color } = req.body;
-    const updatedClient = await Client.findOneAndUpdate(
+    // Try to find and update by facCode first, then by clientId for backward compatibility
+    let updatedClient = await Client.findOneAndUpdate(
       { facCode: req.params.clientId },
       { name, mainContact, phoneNumber, city, state, facCode, filePath, color },
       { new: true }
     );
+    if (!updatedClient) {
+      updatedClient = await Client.findOneAndUpdate(
+        { clientId: req.params.clientId },
+        { name, mainContact, phoneNumber, city, state, facCode, filePath, color },
+        { new: true }
+      );
+    }
     if (!updatedClient) {
       return res.status(404).json({ error: 'Client not found' });
     }
@@ -596,7 +608,11 @@ app.put('/api/clients/:clientId', async (req, res) => {
 
 app.delete('/api/clients/:clientId', async (req, res) => {
   try {
-    const deletedClient = await Client.findOneAndDelete({ facCode: req.params.clientId });
+    // Try to find and delete by facCode first, then by clientId for backward compatibility
+    let deletedClient = await Client.findOneAndDelete({ facCode: req.params.clientId });
+    if (!deletedClient) {
+      deletedClient = await Client.findOneAndDelete({ clientId: req.params.clientId });
+    }
     if (!deletedClient) {
       return res.status(404).json({ error: 'Client not found' });
     }
