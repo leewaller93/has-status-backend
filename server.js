@@ -64,7 +64,10 @@ const ClientSchema = new mongoose.Schema({
   }},
   filePath: { type: String, default: '' },
   color: { type: String, default: '#2563eb' },
-  createdAt: { type: Date, default: Date.now }
+  createdAt: { type: Date, default: Date.now },
+  // Backward compatibility fields
+  clientId: { type: String },
+  contactPerson: { type: String }
 });
 const Client = mongoose.model('Client', ClientSchema);
 
@@ -505,22 +508,29 @@ app.post('/api/clients', async (req, res) => {
     console.log('Client creation request:', req.body);
     const { name, mainContact, phoneNumber, city, state, facCode, filePath, color } = req.body;
     
-    // Check if client already exists
+    // Check if client already exists by facCode
     const existingClient = await Client.findOne({ facCode });
     if (existingClient) {
       console.log('Client already exists:', facCode);
       return res.status(400).json({ error: 'Client Code already exists' });
     }
     
+    // Also check if client exists by clientId (for backward compatibility)
+    const existingClientById = await Client.findOne({ clientId: facCode });
+    if (existingClientById) {
+      console.log('Client already exists by clientId:', facCode);
+      return res.status(400).json({ error: 'Client Code already exists' });
+    }
+    
     const newClient = new Client({
       name,
-      mainContact,
-      phoneNumber,
-      city,
-      state,
+      mainContact: mainContact || '',
+      phoneNumber: phoneNumber || '',
+      city: city || '',
+      state: state || '',
       facCode,
-      filePath,
-      color
+      filePath: filePath || '',
+      color: color || '#2563eb'
     });
     
     console.log('Saving new client:', newClient);
