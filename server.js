@@ -502,11 +502,13 @@ app.get('/api/project', async (req, res) => {
 // Enhanced Client Management
 app.post('/api/clients', async (req, res) => {
   try {
+    console.log('Client creation request:', req.body);
     const { name, mainContact, phoneNumber, city, state, facCode, filePath, color } = req.body;
     
     // Check if client already exists
     const existingClient = await Client.findOne({ facCode });
     if (existingClient) {
+      console.log('Client already exists:', facCode);
       return res.status(400).json({ error: 'Client Code already exists' });
     }
     
@@ -521,7 +523,9 @@ app.post('/api/clients', async (req, res) => {
       color
     });
     
+    console.log('Saving new client:', newClient);
     await newClient.save();
+    console.log('Client saved successfully');
     
     // Automatically create PHGHAS team member for new client
     const phgTeamMember = new Team({
@@ -531,10 +535,13 @@ app.post('/api/clients', async (req, res) => {
       org: 'PHG'
     });
     
+    console.log('Creating PHGHAS team member for client:', facCode);
     await phgTeamMember.save();
+    console.log('PHGHAS team member created successfully');
     
     res.json({ success: true, client: newClient });
   } catch (err) {
+    console.error('Error creating client:', err);
     res.status(500).json({ error: err.message });
   }
 });
