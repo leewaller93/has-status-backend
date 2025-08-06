@@ -505,7 +505,7 @@ app.get('/api/project', async (req, res) => {
 // Enhanced Client Management
 app.post('/api/clients', async (req, res) => {
   try {
-    console.log('Client creation request:', req.body);
+    console.log('Client creation request (FORCE REDEPLOY):', req.body);
     const { name, mainContact, phoneNumber, city, state, facCode, filePath, color } = req.body;
     
     // Check if client already exists by facCode
