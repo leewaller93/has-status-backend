@@ -529,6 +529,7 @@ app.post('/api/clients', async (req, res) => {
       city: city || '',
       state: state || '',
       facCode,
+      clientId: facCode, // Set clientId to facCode to avoid null duplicate key error
       filePath: filePath || '',
       color: color || '#2563eb'
     });
