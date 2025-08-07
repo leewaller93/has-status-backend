@@ -22,23 +22,40 @@ mongoose.connect(process.env.MONGODB_URI, {
   // Database migration: Drop old clientCode index if it exists
   try {
     const db = mongoose.connection.db;
-    const collections = await db.listCollections().toArray();
-    const clientsCollection = collections.find(col => col.name === 'clients');
+    console.log('Starting database migration...');
     
-    if (clientsCollection) {
-      const indexes = await db.collection('clients').indexes();
-      const clientCodeIndex = indexes.find(index => 
-        index.key && index.key.clientCode === 1
-      );
-      
-      if (clientCodeIndex) {
-        console.log('Dropping old clientCode index...');
-        await db.collection('clients').dropIndex('clientCode_1');
-        console.log('Old clientCode index dropped successfully');
+    // List all indexes on clients collection
+    const indexes = await db.collection('clients').indexes();
+    console.log('Current indexes:', indexes.map(idx => idx.name));
+    
+    // Drop any index that contains clientCode
+    for (const index of indexes) {
+      if (index.key && index.key.clientCode) {
+        console.log(`Dropping index with clientCode: ${index.name}`);
+        try {
+          await db.collection('clients').dropIndex(index.name);
+          console.log(`Successfully dropped index: ${index.name}`);
+        } catch (dropErr) {
+          console.log(`Could not drop index ${index.name}:`, dropErr.message);
+        }
       }
     }
+    
+    // Also try to drop by common index names
+    const commonIndexNames = ['clientCode_1', 'clientCode', 'clientCode_unique'];
+    for (const indexName of commonIndexNames) {
+      try {
+        await db.collection('clients').dropIndex(indexName);
+        console.log(`Successfully dropped index: ${indexName}`);
+      } catch (dropErr) {
+        // Index doesn't exist, which is fine
+        console.log(`Index ${indexName} does not exist (this is OK)`);
+      }
+    }
+    
+    console.log('Database migration completed');
   } catch (err) {
-    console.log('Index migration check completed (no action needed):', err.message);
+    console.log('Database migration error (continuing anyway):', err.message);
   }
 })
 .catch(err => console.error('MongoDB connection error:', err));
@@ -525,8 +542,14 @@ app.get('/api/project', async (req, res) => {
 // Enhanced Client Management
 app.post('/api/clients', async (req, res) => {
   try {
-    console.log('Client creation request (FIXED VERSION):', req.body);
+    console.log('Client creation request (ENHANCED DEBUG VERSION):', req.body);
     const { name, mainContact, phoneNumber, city, state, facCode, filePath, color } = req.body;
+    
+    // Validate required fields
+    if (!name || !facCode) {
+      console.log('Missing required fields:', { name, facCode });
+      return res.status(400).json({ error: 'Name and Client Code are required' });
+    }
     
     // Check if client already exists by facCode
     const existingClient = await Client.findOne({ facCode });
@@ -546,9 +569,14 @@ app.post('/api/clients', async (req, res) => {
       color: color || '#2563eb'
     });
     
-    console.log('Saving new client:', newClient);
+    console.log('About to save new client:', {
+      name: newClient.name,
+      facCode: newClient.facCode,
+      hasClientCode: !!newClient.clientCode
+    });
+    
     await newClient.save();
-    console.log('Client saved successfully');
+    console.log('Client saved successfully with ID:', newClient._id);
     
     // Automatically create PHGHAS team member for new client
     const phgTeamMember = new Team({
@@ -564,7 +592,12 @@ app.post('/api/clients', async (req, res) => {
     
     res.json({ success: true, client: newClient });
   } catch (err) {
-    console.error('Error creating client:', err);
+    console.error('Error creating client (DETAILED):', {
+      message: err.message,
+      code: err.code,
+      name: err.name,
+      stack: err.stack
+    });
     res.status(500).json({ error: err.message });
   }
 });

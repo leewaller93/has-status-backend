@@ -1,0 +1,5 @@
+[33maeec29b[m[33m ([m[1;36mHEAD[m[33m -> [m[1;32mmain[m[33m, [m[1;31morigin/main[m[33m, [m[1;31morigin/HEAD[m[33m)[m Backend update: Implement enhanced team member functionality and fix client addition refresh
+[33m9886bee[m Backend update: Final deployment - fix client creation
+[33m620f21e[m Backend update: Simplify client schema - use only facCode, remove clientId confusion
+[33m37d52bd[m Backend update: Fix clientCode duplicate key error - drop old database index
+[33m56cfed0[m Backend update 2025-08-06 15:26:13
