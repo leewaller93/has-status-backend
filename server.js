@@ -88,10 +88,7 @@ const ClientSchema = new mongoose.Schema({
   }},
   filePath: { type: String, default: '' },
   color: { type: String, default: '#2563eb' },
-  createdAt: { type: Date, default: Date.now },
-  // Backward compatibility fields
-  clientId: { type: String },
-  contactPerson: { type: String }
+  createdAt: { type: Date, default: Date.now }
 });
 const Client = mongoose.model('Client', ClientSchema);
 
@@ -539,13 +536,6 @@ app.post('/api/clients', async (req, res) => {
       return res.status(400).json({ error: 'Client Code already exists' });
     }
     
-    // Also check if client exists by clientId (for backward compatibility)
-    const existingClientById = await Client.findOne({ clientId: facCode });
-    if (existingClientById) {
-      console.log('Client already exists by clientId:', facCode);
-      return res.status(400).json({ error: 'Client Code already exists' });
-    }
-    
     const newClient = new Client({
       name,
       mainContact: mainContact || '',
@@ -553,7 +543,6 @@ app.post('/api/clients', async (req, res) => {
       city: city || '',
       state: state || '',
       facCode,
-      clientId: facCode, // Set clientId to facCode to avoid null duplicate key error
       filePath: filePath || '',
       color: color || '#2563eb'
     });
@@ -590,13 +579,9 @@ app.get('/api/clients', async (req, res) => {
   }
 });
 
-app.get('/api/clients/:clientId', async (req, res) => {
+app.get('/api/clients/:facCode', async (req, res) => {
   try {
-    // Try to find by facCode first, then by clientId for backward compatibility
-    let client = await Client.findOne({ facCode: req.params.clientId });
-    if (!client) {
-      client = await Client.findOne({ clientId: req.params.clientId });
-    }
+    const client = await Client.findOne({ facCode: req.params.facCode });
     if (!client) {
       return res.status(404).json({ error: 'Client not found' });
     }
@@ -606,22 +591,14 @@ app.get('/api/clients/:clientId', async (req, res) => {
   }
 });
 
-app.put('/api/clients/:clientId', async (req, res) => {
+app.put('/api/clients/:facCode', async (req, res) => {
   try {
     const { name, mainContact, phoneNumber, city, state, facCode, filePath, color } = req.body;
-    // Try to find and update by facCode first, then by clientId for backward compatibility
-    let updatedClient = await Client.findOneAndUpdate(
-      { facCode: req.params.clientId },
+    const updatedClient = await Client.findOneAndUpdate(
+      { facCode: req.params.facCode },
       { name, mainContact, phoneNumber, city, state, facCode, filePath, color },
       { new: true }
     );
-    if (!updatedClient) {
-      updatedClient = await Client.findOneAndUpdate(
-        { clientId: req.params.clientId },
-        { name, mainContact, phoneNumber, city, state, facCode, filePath, color },
-        { new: true }
-      );
-    }
     if (!updatedClient) {
       return res.status(404).json({ error: 'Client not found' });
     }
@@ -631,13 +608,9 @@ app.put('/api/clients/:clientId', async (req, res) => {
   }
 });
 
-app.delete('/api/clients/:clientId', async (req, res) => {
+app.delete('/api/clients/:facCode', async (req, res) => {
   try {
-    // Try to find and delete by facCode first, then by clientId for backward compatibility
-    let deletedClient = await Client.findOneAndDelete({ facCode: req.params.clientId });
-    if (!deletedClient) {
-      deletedClient = await Client.findOneAndDelete({ clientId: req.params.clientId });
-    }
+    const deletedClient = await Client.findOneAndDelete({ facCode: req.params.facCode });
     if (!deletedClient) {
       return res.status(404).json({ error: 'Client not found' });
     }
