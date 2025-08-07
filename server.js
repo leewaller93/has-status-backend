@@ -16,7 +16,31 @@ mongoose.connect(process.env.MONGODB_URI, {
   useNewUrlParser: true,
   useUnifiedTopology: true,
 })
-.then(() => console.log('MongoDB connected!'))
+.then(async () => {
+  console.log('MongoDB connected!');
+  
+  // Database migration: Drop old clientCode index if it exists
+  try {
+    const db = mongoose.connection.db;
+    const collections = await db.listCollections().toArray();
+    const clientsCollection = collections.find(col => col.name === 'clients');
+    
+    if (clientsCollection) {
+      const indexes = await db.collection('clients').indexes();
+      const clientCodeIndex = indexes.find(index => 
+        index.key && index.key.clientCode === 1
+      );
+      
+      if (clientCodeIndex) {
+        console.log('Dropping old clientCode index...');
+        await db.collection('clients').dropIndex('clientCode_1');
+        console.log('Old clientCode index dropped successfully');
+      }
+    }
+  } catch (err) {
+    console.log('Index migration check completed (no action needed):', err.message);
+  }
+})
 .catch(err => console.error('MongoDB connection error:', err));
 
 // Mongoose Schemas
