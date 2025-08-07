@@ -94,6 +94,7 @@ const Project = mongoose.model('Project', ProjectSchema);
 const ClientSchema = new mongoose.Schema({
   name: { type: String, required: true },
   mainContact: { type: String, default: '' },
+  email: { type: String, default: '' },
   phoneNumber: { type: String, default: '' },
   city: { type: String, default: '' },
   state: { type: String, default: '' },
@@ -543,7 +544,7 @@ app.get('/api/project', async (req, res) => {
 app.post('/api/clients', async (req, res) => {
   try {
     console.log('Client creation request (ENHANCED DEBUG VERSION):', req.body);
-    const { name, mainContact, phoneNumber, city, state, facCode, filePath, color } = req.body;
+    const { name, mainContact, email, phoneNumber, city, state, facCode, filePath, color } = req.body;
     
     // Validate required fields
     if (!name || !facCode) {
@@ -561,6 +562,7 @@ app.post('/api/clients', async (req, res) => {
     const newClient = new Client({
       name,
       mainContact: mainContact || '',
+      email: email || '',
       phoneNumber: phoneNumber || '',
       city: city || '',
       state: state || '',
@@ -625,10 +627,10 @@ app.get('/api/clients/:facCode', async (req, res) => {
 
 app.put('/api/clients/:facCode', async (req, res) => {
   try {
-    const { name, mainContact, phoneNumber, city, state, facCode, filePath, color } = req.body;
+    const { name, mainContact, email, phoneNumber, city, state, facCode, filePath, color } = req.body;
     const updatedClient = await Client.findOneAndUpdate(
       { facCode: req.params.facCode },
-      { name, mainContact, phoneNumber, city, state, facCode, filePath, color },
+      { name, mainContact, email, phoneNumber, city, state, facCode, filePath, color },
       { new: true }
     );
     if (!updatedClient) {
