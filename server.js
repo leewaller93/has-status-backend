@@ -97,7 +97,6 @@ const InternalTeamSchema = new mongoose.Schema({
   name: { type: String, required: true },
   email: { type: String, required: true, unique: true },
   teamName: { type: String, default: 'PHG' },
-  assignedClients: [{ type: String }], // Array of FAC codes
   createdAt: { type: Date, default: Date.now }
 });
 const InternalTeam = mongoose.model('InternalTeam', InternalTeamSchema);
@@ -623,7 +622,7 @@ app.delete('/api/clients/:facCode', async (req, res) => {
 // Internal Team Management
 app.post('/api/internal-team', async (req, res) => {
   try {
-    const { name, email, teamName, assignedClients } = req.body;
+    const { name, email, teamName } = req.body;
     
     // Check if team member already exists
     const existingMember = await InternalTeam.findOne({ email });
@@ -634,8 +633,7 @@ app.post('/api/internal-team', async (req, res) => {
     const newTeamMember = new InternalTeam({
       name,
       email,
-      teamName,
-      assignedClients
+      teamName
     });
     
     await newTeamMember.save();
@@ -648,6 +646,16 @@ app.post('/api/internal-team', async (req, res) => {
 app.get('/api/internal-team', async (req, res) => {
   try {
     const teamMembers = await InternalTeam.find().sort({ createdAt: -1 });
+    res.json(teamMembers);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Get all internal team members for dropdown (simplified version)
+app.get('/api/internal-team/dropdown', async (req, res) => {
+  try {
+    const teamMembers = await InternalTeam.find().select('name email teamName').sort({ name: 1 });
     res.json(teamMembers);
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -668,10 +676,10 @@ app.get('/api/internal-team/:email', async (req, res) => {
 
 app.put('/api/internal-team/:id', async (req, res) => {
   try {
-    const { name, email, teamName, assignedClients } = req.body;
+    const { name, email, teamName } = req.body;
     const updatedMember = await InternalTeam.findByIdAndUpdate(
       req.params.id,
-      { name, email, teamName, assignedClients },
+      { name, email, teamName },
       { new: true }
     );
     if (!updatedMember) {
