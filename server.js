@@ -115,6 +115,8 @@ const InternalTeamSchema = new mongoose.Schema({
   name: { type: String, required: true },
   email: { type: String, required: true, unique: true },
   teamName: { type: String, default: 'PHG' },
+  accessLevel: { type: String, enum: ['admin', 'employee'], default: 'employee' },
+  assignedClients: [{ type: String }], // Array of client facCodes
   createdAt: { type: Date, default: Date.now }
 });
 const InternalTeam = mongoose.model('InternalTeam', InternalTeamSchema);
@@ -657,7 +659,7 @@ app.delete('/api/clients/:facCode', async (req, res) => {
 // Internal Team Management
 app.post('/api/internal-team', async (req, res) => {
   try {
-    const { name, email, teamName } = req.body;
+    const { name, email, teamName, accessLevel, assignedClients } = req.body;
     
     // Check if team member already exists
     const existingMember = await InternalTeam.findOne({ email });
@@ -668,7 +670,9 @@ app.post('/api/internal-team', async (req, res) => {
     const newTeamMember = new InternalTeam({
       name,
       email,
-      teamName
+      teamName,
+      accessLevel: accessLevel || 'employee',
+      assignedClients: assignedClients || []
     });
     
     await newTeamMember.save();
@@ -711,10 +715,10 @@ app.get('/api/internal-team/:email', async (req, res) => {
 
 app.put('/api/internal-team/:id', async (req, res) => {
   try {
-    const { name, email, teamName } = req.body;
+    const { name, email, teamName, accessLevel, assignedClients } = req.body;
     const updatedMember = await InternalTeam.findByIdAndUpdate(
       req.params.id,
-      { name, email, teamName },
+      { name, email, teamName, accessLevel, assignedClients },
       { new: true }
     );
     if (!updatedMember) {
