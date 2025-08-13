@@ -597,6 +597,7 @@ app.post('/api/clients', async (req, res) => {
     // Automatically create PHGHAS team member for new client
     const phgTeamMember = new Team({
       clientId: facCode,
+      username: 'PHGHAS',
       email: 'phghas@phg.com',
       org: 'PHG'
     });
