@@ -42,7 +42,7 @@ mongoose.connect(process.env.MONGODB_URI, {
     }
     
     // Also try to drop by common index names
-    const commonIndexNames = ['clientCode_1', 'clientCode', 'clientCode_unique'];
+    const commonIndexNames = ['clientCode_1', 'clientCode', 'clientCode_unique', 'clientId_1'];
     for (const indexName of commonIndexNames) {
       try {
         await db.collection('clients').dropIndex(indexName);
@@ -51,6 +51,16 @@ mongoose.connect(process.env.MONGODB_URI, {
         // Index doesn't exist, which is fine
         console.log(`Index ${indexName} does not exist (this is OK)`);
       }
+    }
+    
+    // Clean up any clients with null clientId values
+    try {
+      const result = await db.collection('clients').deleteMany({ clientId: null });
+      if (result.deletedCount > 0) {
+        console.log(`Cleaned up ${result.deletedCount} clients with null clientId`);
+      }
+    } catch (cleanupErr) {
+      console.log('Cleanup error (continuing anyway):', cleanupErr.message);
     }
     
     console.log('Database migration completed');
@@ -577,8 +587,7 @@ app.post('/api/clients', async (req, res) => {
     
     console.log('About to save new client:', {
       name: newClient.name,
-      facCode: newClient.facCode,
-      hasClientCode: !!newClient.clientCode
+      facCode: newClient.facCode
     });
     
     await newClient.save();
@@ -603,6 +612,12 @@ app.post('/api/clients', async (req, res) => {
       name: err.name,
       stack: err.stack
     });
+    
+    // Handle specific duplicate key error for clientId
+    if (err.code === 11000 && err.message.includes('clientId')) {
+      return res.status(400).json({ error: 'Client creation failed due to database index issue. Please try again.' });
+    }
+    
     res.status(500).json({ error: err.message });
   }
 });
