@@ -126,9 +126,10 @@ const InternalTeamSchema = new mongoose.Schema({
   username: { type: String, required: true, unique: true }, // Login username
   password: { type: String, required: true }, // Login password
   email: { type: String, required: true, unique: true },
-  teamName: { type: String, default: 'PHG' },
+  org: { type: String, required: true }, // Organization: PHG, Client Name, or Other
   accessLevel: { type: String, enum: ['admin', 'employee'], default: 'employee' },
   assignedClients: [{ type: String }], // Array of client facCodes
+  notWorking: { type: Boolean, default: false }, // Not working toggle
   createdAt: { type: Date, default: Date.now }
 });
 const InternalTeam = mongoose.model('InternalTeam', InternalTeamSchema);
@@ -675,7 +676,7 @@ app.delete('/api/clients/:facCode', async (req, res) => {
 // Internal Team Management
 app.post('/api/internal-team', async (req, res) => {
   try {
-    const { name, username, password, email, teamName, accessLevel, assignedClients } = req.body;
+    const { name, username, password, email, org, accessLevel, assignedClients } = req.body;
     
     // Check if team member already exists by email or username
     const existingMemberByEmail = await InternalTeam.findOne({ email });
@@ -694,9 +695,10 @@ app.post('/api/internal-team', async (req, res) => {
       username,
       password,
       email,
-      teamName,
+      org,
       accessLevel: accessLevel || 'employee',
-      assignedClients: assignedClients || []
+      assignedClients: assignedClients || [],
+      notWorking: false
     });
     
     await newTeamMember.save();
@@ -718,8 +720,23 @@ app.get('/api/internal-team', async (req, res) => {
 // Get all internal team members for dropdown (simplified version)
 app.get('/api/internal-team/dropdown', async (req, res) => {
   try {
-    const teamMembers = await InternalTeam.find().select('name email teamName').sort({ name: 1 });
+    const teamMembers = await InternalTeam.find().select('name email org').sort({ name: 1 });
     res.json(teamMembers);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Get organization options for team member form
+app.get('/api/org-options', async (req, res) => {
+  try {
+    const clients = await Client.find().select('name facCode').sort({ name: 1 });
+    const orgOptions = [
+      { value: 'PHG', label: 'PHG' },
+      ...clients.map(client => ({ value: client.name, label: client.name })),
+      { value: 'Other', label: 'Other' }
+    ];
+    res.json(orgOptions);
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
@@ -752,10 +769,10 @@ app.get('/api/internal-team/login/:username', async (req, res) => {
 
 app.put('/api/internal-team/:id', async (req, res) => {
   try {
-    const { name, username, password, email, teamName, accessLevel, assignedClients } = req.body;
+    const { name, username, password, email, org, accessLevel, assignedClients, notWorking } = req.body;
     const updatedMember = await InternalTeam.findByIdAndUpdate(
       req.params.id,
-      { name, username, password, email, teamName, accessLevel, assignedClients },
+      { name, username, password, email, org, accessLevel, assignedClients, notWorking },
       { new: true }
     );
     if (!updatedMember) {
