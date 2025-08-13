@@ -134,15 +134,54 @@ const InternalTeamSchema = new mongoose.Schema({
 });
 const InternalTeam = mongoose.model('InternalTeam', InternalTeamSchema);
 
-// Audit Trail Schema for tracking deletions
+// Enhanced Audit Trail Schema for comprehensive tracking
 const AuditTrailSchema = new mongoose.Schema({
+  // Basic Info
+  timestamp: { type: Date, default: Date.now },
+  userId: { type: String, required: true },
+  userEmail: { type: String, required: true },
   clientId: { type: String, required: true },
-  action: { type: String, required: true }, // 'delete_team_member', 'delete_task', 'reassign_tasks'
-  targetId: { type: String, required: true }, // ID of deleted item
-  targetName: { type: String, required: true }, // Name of deleted item
-  details: { type: String }, // Additional details like reassignment info
-  performedBy: { type: String, required: true }, // User who performed the action
-  timestamp: { type: Date, default: Date.now }
+  
+  // Action Details
+  action: { 
+    type: String, 
+    enum: [
+      'create_client',
+      'update_client', 
+      'delete_client',
+      'create_team_member',
+      'update_team_member',
+      'delete_team_member',
+      'assign_team_member',
+      'unassign_team_member',
+      'create_task',
+      'update_task',
+      'delete_task',
+      'reassign_task',
+      'apply_template',
+      'change_status'
+    ],
+    required: true 
+  },
+  
+  // Target Information
+  targetType: { type: String, required: true }, // 'client', 'team_member', 'task'
+  targetId: { type: String, required: true },
+  targetName: { type: String, required: true },
+  
+  // Change Details
+  oldValues: { type: mongoose.Schema.Types.Mixed }, // Previous state
+  newValues: { type: mongoose.Schema.Types.Mixed }, // New state
+  changes: [{ // Specific changes made
+    field: String,
+    oldValue: mongoose.Schema.Types.Mixed,
+    newValue: mongoose.Schema.Types.Mixed
+  }],
+  
+  // Context
+  reason: { type: String }, // Why the change was made
+  impact: { type: String }, // What this change affects
+  metadata: { type: mongoose.Schema.Types.Mixed } // Additional context
 });
 const AuditTrail = mongoose.model('AuditTrail', AuditTrailSchema);
 
@@ -663,12 +702,96 @@ app.put('/api/clients/:facCode', async (req, res) => {
 });
 
 app.delete('/api/clients/:facCode', async (req, res) => {
+  const { facCode } = req.params;
+  const { adminUserId, adminEmail, adminPassword } = req.body;
+  
   try {
-    const deletedClient = await Client.findOneAndDelete({ facCode: req.params.facCode });
-    if (!deletedClient) {
+    // 1. Verify admin credentials
+    const adminUser = await InternalTeam.findOne({ username: adminUserId });
+    if (!adminUser || adminUser.password !== adminPassword || adminUser.accessLevel !== 'admin') {
+      return res.status(401).json({ error: 'Invalid admin credentials' });
+    }
+    
+    // 2. Get client and all affected data before deletion
+    const client = await Client.findOne({ facCode });
+    if (!client) {
       return res.status(404).json({ error: 'Client not found' });
     }
-    res.json({ success: true });
+    
+    const affectedTeamMembers = await InternalTeam.find({ 
+      assignedClients: facCode 
+    });
+    const affectedTasks = await Phase.find({ clientId: facCode });
+    
+    // 3. Create comprehensive audit entry
+    const auditEntry = new AuditTrail({
+      userId: adminUserId,
+      userEmail: adminEmail,
+      clientId: facCode,
+      action: 'delete_client',
+      targetType: 'client',
+      targetId: facCode,
+      targetName: client.name,
+      oldValues: {
+        client: client.toObject(),
+        affectedTeamMembers: affectedTeamMembers.map(m => ({
+          id: m._id,
+          name: m.name,
+          email: m.email,
+          assignedClients: m.assignedClients
+        })),
+        affectedTasks: affectedTasks.length
+      },
+      newValues: null,
+      changes: [
+        {
+          field: 'client_deleted',
+          oldValue: client.name,
+          newValue: null
+        },
+        {
+          field: 'team_members_affected',
+          oldValue: affectedTeamMembers.length,
+          newValue: 0
+        },
+        {
+          field: 'tasks_affected',
+          oldValue: affectedTasks.length,
+          newValue: 0
+        }
+      ],
+      reason: 'Client deletion requested by admin',
+      impact: `Deleted client "${client.name}" and removed ${affectedTeamMembers.length} team member assignments and ${affectedTasks.length} tasks`,
+      metadata: {
+        deletionMethod: 'admin_requested',
+        cleanupPerformed: true,
+        adminUser: adminUserId
+      }
+    });
+    
+    await auditEntry.save();
+    
+    // 4. Perform actual deletion and cleanup
+    await Client.deleteOne({ facCode });
+    
+    // Remove client from team member assignments
+    if (affectedTeamMembers.length > 0) {
+      await InternalTeam.updateMany(
+        { assignedClients: facCode },
+        { $pull: { assignedClients: facCode } }
+      );
+    }
+    
+    // Delete all tasks for this client
+    if (affectedTasks.length > 0) {
+      await Phase.deleteMany({ clientId: facCode });
+    }
+    
+    res.json({
+      success: true,
+      auditId: auditEntry._id,
+      summary: `Client "${client.name}" deleted successfully. ${affectedTeamMembers.length} team members unassigned, ${affectedTasks.length} tasks removed.`
+    });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
@@ -797,12 +920,25 @@ app.delete('/api/internal-team/:id', async (req, res) => {
   }
 });
 
-// Audit Trail endpoints
+// Enhanced Audit Trail endpoints
 app.get('/api/audit-trail', async (req, res) => {
   try {
-    const { clientId } = req.query;
-    const query = clientId ? { clientId } : {};
-    const auditTrail = await AuditTrail.find(query).sort({ timestamp: -1 });
+    const { clientId, action, userId, startDate, endDate, limit } = req.query;
+    const query = {};
+    
+    if (clientId) query.clientId = clientId;
+    if (action) query.action = action;
+    if (userId) query.userId = userId;
+    if (startDate || endDate) {
+      query.timestamp = {};
+      if (startDate) query.timestamp.$gte = new Date(startDate);
+      if (endDate) query.timestamp.$lte = new Date(endDate);
+    }
+    
+    const auditTrail = await AuditTrail.find(query)
+      .sort({ timestamp: -1 })
+      .limit(parseInt(limit) || 100);
+    
     res.json(auditTrail);
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -813,6 +949,52 @@ app.get('/api/audit-trail/:clientId', async (req, res) => {
   try {
     const auditTrail = await AuditTrail.find({ clientId: req.params.clientId }).sort({ timestamp: -1 });
     res.json(auditTrail);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Audit Trail reporting endpoint
+app.get('/api/audit-report', async (req, res) => {
+  try {
+    const { clientId, action, userId, startDate, endDate } = req.query;
+    const query = {};
+    
+    if (clientId) query.clientId = clientId;
+    if (action) query.action = action;
+    if (userId) query.userId = userId;
+    if (startDate || endDate) {
+      query.timestamp = {};
+      if (startDate) query.timestamp.$gte = new Date(startDate);
+      if (endDate) query.timestamp.$lte = new Date(endDate);
+    }
+    
+    const auditTrail = await AuditTrail.find(query).sort({ timestamp: -1 });
+    
+    // Generate summary statistics
+    const summary = {
+      totalActions: auditTrail.length,
+      actionsByType: {},
+      actionsByUser: {},
+      actionsByClient: {},
+      recentActivity: auditTrail.slice(0, 10)
+    };
+    
+    auditTrail.forEach(entry => {
+      // Count by action type
+      summary.actionsByType[entry.action] = (summary.actionsByType[entry.action] || 0) + 1;
+      
+      // Count by user
+      summary.actionsByUser[entry.userEmail] = (summary.actionsByUser[entry.userEmail] || 0) + 1;
+      
+      // Count by client
+      summary.actionsByClient[entry.clientId] = (summary.actionsByClient[entry.clientId] || 0) + 1;
+    });
+    
+    res.json({
+      summary,
+      fullTrail: auditTrail
+    });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
