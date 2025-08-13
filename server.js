@@ -920,6 +920,34 @@ app.delete('/api/internal-team/:id', async (req, res) => {
   }
 });
 
+// Cleanup client assignments endpoint
+app.post('/api/internal-team/cleanup-assignments', async (req, res) => {
+  try {
+    const { facCode } = req.body;
+    
+    if (!facCode) {
+      return res.status(400).json({ error: 'Client code is required' });
+    }
+    
+    // Remove the client from all team member assignments
+    const result = await InternalTeam.updateMany(
+      { assignedClients: facCode },
+      { $pull: { assignedClients: facCode } }
+    );
+    
+    console.log(`Cleaned up assignments for client ${facCode}: ${result.modifiedCount} team members updated`);
+    
+    res.json({ 
+      success: true, 
+      message: `Cleaned up assignments for client ${facCode}`,
+      modifiedCount: result.modifiedCount 
+    });
+  } catch (err) {
+    console.error('Error cleaning up client assignments:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // Enhanced Audit Trail endpoints
 app.get('/api/audit-trail', async (req, res) => {
   try {
