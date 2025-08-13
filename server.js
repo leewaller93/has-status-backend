@@ -112,7 +112,9 @@ const Client = mongoose.model('Client', ClientSchema);
 
 // Internal Team Schema for managing team members
 const InternalTeamSchema = new mongoose.Schema({
-  name: { type: String, required: true },
+  name: { type: String, required: true }, // Full name
+  username: { type: String, required: true, unique: true }, // Login username
+  password: { type: String, required: true }, // Login password
   email: { type: String, required: true, unique: true },
   teamName: { type: String, default: 'PHG' },
   accessLevel: { type: String, enum: ['admin', 'employee'], default: 'employee' },
@@ -659,16 +661,24 @@ app.delete('/api/clients/:facCode', async (req, res) => {
 // Internal Team Management
 app.post('/api/internal-team', async (req, res) => {
   try {
-    const { name, email, teamName, accessLevel, assignedClients } = req.body;
+    const { name, username, password, email, teamName, accessLevel, assignedClients } = req.body;
     
-    // Check if team member already exists
-    const existingMember = await InternalTeam.findOne({ email });
-    if (existingMember) {
+    // Check if team member already exists by email or username
+    const existingMemberByEmail = await InternalTeam.findOne({ email });
+    const existingMemberByUsername = await InternalTeam.findOne({ username });
+    
+    if (existingMemberByEmail) {
       return res.status(400).json({ error: 'Team member with this email already exists' });
+    }
+    
+    if (existingMemberByUsername) {
+      return res.status(400).json({ error: 'Team member with this username already exists' });
     }
     
     const newTeamMember = new InternalTeam({
       name,
+      username,
+      password,
       email,
       teamName,
       accessLevel: accessLevel || 'employee',
@@ -713,12 +723,25 @@ app.get('/api/internal-team/:email', async (req, res) => {
   }
 });
 
+// New endpoint for username-based login
+app.get('/api/internal-team/login/:username', async (req, res) => {
+  try {
+    const teamMember = await InternalTeam.findOne({ username: req.params.username });
+    if (!teamMember) {
+      return res.status(404).json({ error: 'Team member not found' });
+    }
+    res.json(teamMember);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 app.put('/api/internal-team/:id', async (req, res) => {
   try {
-    const { name, email, teamName, accessLevel, assignedClients } = req.body;
+    const { name, username, password, email, teamName, accessLevel, assignedClients } = req.body;
     const updatedMember = await InternalTeam.findByIdAndUpdate(
       req.params.id,
-      { name, email, teamName, accessLevel, assignedClients },
+      { name, username, password, email, teamName, accessLevel, assignedClients },
       { new: true }
     );
     if (!updatedMember) {
