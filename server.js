@@ -19,7 +19,7 @@ mongoose.connect(process.env.MONGODB_URI, {
 .then(async () => {
   console.log('MongoDB connected!');
   
-  // Database migration: Drop old clientCode index if it exists
+  // Database migration: Drop old indexes and fix facCode issues
   try {
     const db = mongoose.connection.db;
     console.log('Starting database migration...');
@@ -28,10 +28,10 @@ mongoose.connect(process.env.MONGODB_URI, {
     const indexes = await db.collection('clients').indexes();
     console.log('Current indexes:', indexes.map(idx => idx.name));
     
-    // Drop any index that contains clientCode
+    // Drop any index that contains clientCode or facCode
     for (const index of indexes) {
-      if (index.key && index.key.clientCode) {
-        console.log(`Dropping index with clientCode: ${index.name}`);
+      if (index.key && (index.key.clientCode || index.key.facCode)) {
+        console.log(`Dropping index with clientCode/facCode: ${index.name}`);
         try {
           await db.collection('clients').dropIndex(index.name);
           console.log(`Successfully dropped index: ${index.name}`);
@@ -42,7 +42,10 @@ mongoose.connect(process.env.MONGODB_URI, {
     }
     
     // Also try to drop by common index names
-    const commonIndexNames = ['clientCode_1', 'clientCode', 'clientCode_unique', 'clientId_1'];
+    const commonIndexNames = [
+      'clientCode_1', 'clientCode', 'clientCode_unique', 'clientId_1',
+      'facCode_1', 'facCode', 'facCode_unique'
+    ];
     for (const indexName of commonIndexNames) {
       try {
         await db.collection('clients').dropIndex(indexName);
@@ -606,12 +609,20 @@ app.post('/api/clients', async (req, res) => {
       return res.status(400).json({ error: 'Name and Client Code are required' });
     }
     
+    // Validate facCode format
+    if (!/^[A-Z0-9]{3}$/.test(facCode)) {
+      console.log('Invalid facCode format:', facCode);
+      return res.status(400).json({ error: 'Client Code must be exactly 3 alphanumeric characters (e.g., ABC, 123)' });
+    }
+    
     // Check if client already exists by facCode
     const existingClient = await Client.findOne({ facCode });
     if (existingClient) {
-      console.log('Client already exists:', facCode);
+      console.log('Client already exists with facCode:', facCode);
       return res.status(400).json({ error: 'Client Code already exists' });
     }
+    
+    console.log('Creating new client with facCode:', facCode);
     
     const newClient = new Client({
       name,
@@ -654,9 +665,13 @@ app.post('/api/clients', async (req, res) => {
       stack: err.stack
     });
     
-    // Handle specific duplicate key error for clientId
-    if (err.code === 11000 && err.message.includes('clientId')) {
-      return res.status(400).json({ error: 'Client creation failed due to database index issue. Please try again.' });
+    // Handle specific duplicate key error for facCode
+    if (err.code === 11000) {
+      if (err.message.includes('facCode')) {
+        return res.status(400).json({ error: 'Client Code already exists' });
+      } else if (err.message.includes('clientId')) {
+        return res.status(400).json({ error: 'Client creation failed due to database index issue. Please try again.' });
+      }
     }
     
     res.status(500).json({ error: err.message });
@@ -706,22 +721,33 @@ app.delete('/api/clients/:facCode', async (req, res) => {
   const { adminUserId, adminEmail, adminPassword } = req.body;
   
   try {
+    console.log('Attempting to delete client:', facCode);
+    
     // 1. Verify admin credentials
     const adminUser = await InternalTeam.findOne({ username: adminUserId });
     if (!adminUser || adminUser.password !== adminPassword || adminUser.accessLevel !== 'admin') {
+      console.log('Invalid admin credentials for user:', adminUserId);
       return res.status(401).json({ error: 'Invalid admin credentials' });
     }
     
     // 2. Get client and all affected data before deletion
     const client = await Client.findOne({ facCode });
     if (!client) {
+      console.log('Client not found:', facCode);
       return res.status(404).json({ error: 'Client not found' });
     }
     
+    console.log('Found client to delete:', client.name);
+    
+    // Find all team members who have this client assigned
     const affectedTeamMembers = await InternalTeam.find({ 
       assignedClients: facCode 
     });
+    
+    console.log(`Found ${affectedTeamMembers.length} team members with client ${facCode} assigned`);
+    
     const affectedTasks = await Phase.find({ clientId: facCode });
+    console.log(`Found ${affectedTasks.length} tasks for client ${facCode}`);
     
     // 3. Create comprehensive audit entry
     const auditEntry = new AuditTrail({
@@ -770,29 +796,43 @@ app.delete('/api/clients/:facCode', async (req, res) => {
     });
     
     await auditEntry.save();
+    console.log('Audit trail entry created');
     
     // 4. Perform actual deletion and cleanup
     await Client.deleteOne({ facCode });
+    console.log('Client deleted from database');
     
     // Remove client from team member assignments
     if (affectedTeamMembers.length > 0) {
-      await InternalTeam.updateMany(
+      const updateResult = await InternalTeam.updateMany(
         { assignedClients: facCode },
         { $pull: { assignedClients: facCode } }
       );
+      console.log(`Updated ${updateResult.modifiedCount} team members to remove client assignment`);
     }
     
     // Delete all tasks for this client
     if (affectedTasks.length > 0) {
-      await Phase.deleteMany({ clientId: facCode });
+      const deleteResult = await Phase.deleteMany({ clientId: facCode });
+      console.log(`Deleted ${deleteResult.deletedCount} tasks for client`);
     }
+    
+    // Also delete any team members specific to this client
+    const clientTeamDeleteResult = await Team.deleteMany({ clientId: facCode });
+    console.log(`Deleted ${clientTeamDeleteResult.deletedCount} client-specific team members`);
     
     res.json({
       success: true,
       auditId: auditEntry._id,
-      summary: `Client "${client.name}" deleted successfully. ${affectedTeamMembers.length} team members unassigned, ${affectedTasks.length} tasks removed.`
+      summary: `Client "${client.name}" deleted successfully. ${affectedTeamMembers.length} team members unassigned, ${affectedTasks.length} tasks removed.`,
+      details: {
+        teamMembersUpdated: affectedTeamMembers.length,
+        tasksDeleted: affectedTasks.length,
+        clientTeamMembersDeleted: clientTeamDeleteResult.deletedCount
+      }
     });
   } catch (err) {
+    console.error('Error deleting client:', err);
     res.status(500).json({ error: err.message });
   }
 });
@@ -910,12 +950,27 @@ app.put('/api/internal-team/:id', async (req, res) => {
 
 app.delete('/api/internal-team/:id', async (req, res) => {
   try {
+    console.log('Attempting to delete internal team member with ID:', req.params.id);
+    
     const deletedMember = await InternalTeam.findByIdAndDelete(req.params.id);
     if (!deletedMember) {
+      console.log('Team member not found with ID:', req.params.id);
       return res.status(404).json({ error: 'Team member not found' });
     }
-    res.json({ success: true });
+    
+    console.log('Successfully deleted team member:', deletedMember.username);
+    
+    // Also remove from any client teams if they exist
+    try {
+      await Team.deleteMany({ username: deletedMember.username });
+      console.log('Also removed from client teams');
+    } catch (teamErr) {
+      console.log('Error removing from client teams (non-critical):', teamErr.message);
+    }
+    
+    res.json({ success: true, deletedMember: { username: deletedMember.username, name: deletedMember.name } });
   } catch (err) {
+    console.error('Error deleting internal team member:', err);
     res.status(500).json({ error: err.message });
   }
 });
