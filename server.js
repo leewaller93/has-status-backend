@@ -456,9 +456,19 @@ app.post('/api/invite', async (req, res) => {
   }
   try {
     const clientId = req.query.clientId || req.body.clientId || 'demo';
+    
+    // Check if team member already exists for this client
+    const existingMember = await Team.findOne({ username, clientId });
+    if (existingMember) {
+      console.log(`Team member ${username} already exists for client ${clientId}`);
+      return res.json({ message: 'User already exists', username, existing: true });
+    }
+    
     await Team.create({ username, email, org: org || 'PHG', clientId });
+    console.log(`Created new team member ${username} for client ${clientId}`);
     res.json({ message: 'User added', username });
   } catch (err) {
+    console.error('Error creating team member:', err);
     res.status(500).json({ error: err.message });
   }
 });
@@ -558,12 +568,16 @@ app.delete('/api/team/:id', async (req, res) => {
     
     // Log to audit trail
     const auditEntry = new AuditTrail({
+      userId: performedBy || 'admin',
+      userEmail: performedBy ? `${performedBy}@phg.com` : 'admin@phg.com',
       clientId,
       action: 'delete_team_member',
+      targetType: 'team_member',
       targetId: id,
       targetName: teamMember.username,
-      details: hasAssignedTasks ? `Tasks reassigned to: ${reassignTo}` : 'No tasks to reassign',
-      performedBy: performedBy || 'admin'
+      oldValues: teamMember.toObject(),
+      reason: hasAssignedTasks ? `Tasks reassigned to: ${reassignTo}` : 'No tasks to reassign',
+      impact: 'Team member removed from client team'
     });
     await auditEntry.save();
     
@@ -644,17 +658,23 @@ app.post('/api/clients', async (req, res) => {
     await newClient.save();
     console.log('Client saved successfully with ID:', newClient._id);
     
-    // Automatically create PHGHAS team member for new client
-    const phgTeamMember = new Team({
-      clientId: facCode,
-      username: 'PHGHAS',
-      email: 'phghas@phg.com',
-      org: 'PHG'
-    });
-    
-    console.log('Creating PHGHAS team member for client:', facCode);
-    await phgTeamMember.save();
-    console.log('PHGHAS team member created successfully');
+    // Check if PHGHAS team member already exists for this client
+    const existingPhgMember = await Team.findOne({ clientId: facCode, username: 'PHGHAS' });
+    if (!existingPhgMember) {
+      // Only create PHGHAS team member if it doesn't already exist
+      const phgTeamMember = new Team({
+        clientId: facCode,
+        username: 'PHGHAS',
+        email: 'phghas@phg.com',
+        org: 'PHG'
+      });
+      
+      console.log('Creating PHGHAS team member for client:', facCode);
+      await phgTeamMember.save();
+      console.log('PHGHAS team member created successfully');
+    } else {
+      console.log('PHGHAS team member already exists for client:', facCode);
+    }
     
     res.json({ success: true, client: newClient });
   } catch (err) {
@@ -966,6 +986,26 @@ app.delete('/api/internal-team/:id', async (req, res) => {
       console.log('Also removed from client teams');
     } catch (teamErr) {
       console.log('Error removing from client teams (non-critical):', teamErr.message);
+    }
+    
+    // Create audit trail entry for the deletion
+    try {
+      const auditEntry = new AuditTrail({
+        userId: deletedMember.username,
+        userEmail: deletedMember.email || 'unknown@phg.com',
+        clientId: 'internal',
+        action: 'delete_team_member',
+        targetType: 'team_member',
+        targetId: deletedMember._id.toString(),
+        targetName: deletedMember.name || deletedMember.username,
+        oldValues: deletedMember.toObject(),
+        reason: 'Team member deleted by admin',
+        impact: 'Removed from internal team and all client assignments'
+      });
+      await auditEntry.save();
+      console.log('Audit trail entry created for team member deletion');
+    } catch (auditErr) {
+      console.log('Error creating audit trail entry (non-critical):', auditErr.message);
     }
     
     res.json({ success: true, deletedMember: { username: deletedMember.username, name: deletedMember.name } });
