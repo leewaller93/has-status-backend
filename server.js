@@ -1043,6 +1043,175 @@ app.post('/api/internal-team/cleanup-assignments', async (req, res) => {
   }
 });
 
+// Comprehensive cleanup endpoint for orphaned client references
+app.post('/api/cleanup-orphaned-clients', async (req, res) => {
+  const { adminUserId, adminEmail, adminPassword } = req.body;
+  
+  try {
+    console.log('Starting comprehensive cleanup of orphaned client references');
+    
+    // 1. Verify admin credentials
+    const adminUser = await InternalTeam.findOne({ username: adminUserId });
+    if (!adminUser || adminUser.password !== adminPassword || adminUser.accessLevel !== 'admin') {
+      console.log('Invalid admin credentials for user:', adminUserId);
+      return res.status(401).json({ error: 'Invalid admin credentials' });
+    }
+    
+    // 2. Get all existing client facCodes
+    const existingClients = await Client.find({}, 'facCode');
+    const existingClientCodes = existingClients.map(client => client.facCode);
+    console.log('Existing client codes:', existingClientCodes);
+    
+    // 3. Find all team members with assigned clients
+    const allTeamMembers = await InternalTeam.find({});
+    let orphanedReferences = [];
+    
+    for (const member of allTeamMembers) {
+      if (member.assignedClients && member.assignedClients.length > 0) {
+        const orphanedClients = member.assignedClients.filter(clientCode => 
+          !existingClientCodes.includes(clientCode)
+        );
+        
+        if (orphanedClients.length > 0) {
+          orphanedReferences.push({
+            memberId: member._id,
+            memberName: member.name,
+            memberEmail: member.email,
+            orphanedClients: orphanedClients
+          });
+        }
+      }
+    }
+    
+    console.log(`Found ${orphanedReferences.length} team members with orphaned client references`);
+    
+    // 4. Clean up orphaned references
+    let cleanupResults = [];
+    
+    for (const orphanedRef of orphanedReferences) {
+      const member = await InternalTeam.findById(orphanedRef.memberId);
+      if (member) {
+        const originalAssignedClients = [...member.assignedClients];
+        member.assignedClients = member.assignedClients.filter(clientCode => 
+          existingClientCodes.includes(clientCode)
+        );
+        
+        if (member.assignedClients.length !== originalAssignedClients.length) {
+          await member.save();
+          cleanupResults.push({
+            memberName: member.name,
+            memberEmail: member.email,
+            removedClients: originalAssignedClients.filter(code => 
+              !member.assignedClients.includes(code)
+            ),
+            remainingClients: member.assignedClients
+          });
+        }
+      }
+    }
+    
+    // 5. Also clean up any orphaned Team entries (client-specific team members)
+    const orphanedTeamMembers = await Team.find({
+      clientId: { $nin: existingClientCodes }
+    });
+    
+    let teamCleanupResults = [];
+    if (orphanedTeamMembers.length > 0) {
+      const deleteResult = await Team.deleteMany({
+        clientId: { $nin: existingClientCodes }
+      });
+      
+      teamCleanupResults = orphanedTeamMembers.map(member => ({
+        username: member.username,
+        email: member.email,
+        clientId: member.clientId
+      }));
+      
+      console.log(`Deleted ${deleteResult.deletedCount} orphaned team members`);
+    }
+    
+    // 6. Clean up any orphaned tasks
+    const orphanedTasks = await Phase.find({
+      clientId: { $nin: existingClientCodes }
+    });
+    
+    let taskCleanupResults = [];
+    if (orphanedTasks.length > 0) {
+      const deleteResult = await Phase.deleteMany({
+        clientId: { $nin: existingClientCodes }
+      });
+      
+      taskCleanupResults = orphanedTasks.map(task => ({
+        taskName: task.goal,
+        clientId: task.clientId
+      }));
+      
+      console.log(`Deleted ${deleteResult.deletedCount} orphaned tasks`);
+    }
+    
+    // 7. Create audit trail entry
+    const auditEntry = new AuditTrail({
+      userId: adminUserId,
+      userEmail: adminEmail,
+      action: 'cleanup_orphaned_clients',
+      targetType: 'system_cleanup',
+      oldValues: {
+        orphanedReferences: orphanedReferences.length,
+        orphanedTeamMembers: orphanedTeamMembers.length,
+        orphanedTasks: orphanedTasks.length
+      },
+      newValues: {
+        cleanupResults: cleanupResults.length,
+        teamCleanupResults: teamCleanupResults.length,
+        taskCleanupResults: taskCleanupResults.length
+      },
+      changes: [
+        {
+          field: 'orphaned_references_cleaned',
+          oldValue: orphanedReferences.length,
+          newValue: 0
+        },
+        {
+          field: 'orphaned_team_members_deleted',
+          oldValue: orphanedTeamMembers.length,
+          newValue: 0
+        },
+        {
+          field: 'orphaned_tasks_deleted',
+          oldValue: orphanedTasks.length,
+          newValue: 0
+        }
+      ],
+      reason: 'Comprehensive cleanup of orphaned client references',
+      impact: `Cleaned up ${cleanupResults.length} team member references, ${teamCleanupResults.length} orphaned team members, and ${taskCleanupResults.length} orphaned tasks`,
+      metadata: {
+        cleanupMethod: 'comprehensive_orphan_removal',
+        adminUser: adminUserId
+      }
+    });
+    
+    await auditEntry.save();
+    
+    res.json({
+      success: true,
+      auditId: auditEntry._id,
+      summary: `Cleanup completed successfully`,
+      details: {
+        teamMembersCleaned: cleanupResults.length,
+        orphanedTeamMembersDeleted: teamCleanupResults.length,
+        orphanedTasksDeleted: taskCleanupResults.length,
+        cleanupResults: cleanupResults,
+        teamCleanupResults: teamCleanupResults,
+        taskCleanupResults: taskCleanupResults
+      }
+    });
+    
+  } catch (err) {
+    console.error('Error during cleanup:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // Enhanced Audit Trail endpoints
 app.get('/api/audit-trail', async (req, res) => {
   try {
