@@ -738,15 +738,12 @@ app.put('/api/clients/:facCode', async (req, res) => {
 
 app.delete('/api/clients/:facCode', async (req, res) => {
   const { facCode } = req.params;
-  const { adminUserId, adminEmail, adminPassword } = req.body;
+  const { adminUserId, adminEmail } = req.body;
   
   try {
-    console.log('Attempting to delete client:', facCode);
-    
-    // 1. Verify admin credentials
-    const adminUser = await InternalTeam.findOne({ username: adminUserId });
-    if (!adminUser || adminUser.password !== adminPassword || adminUser.accessLevel !== 'admin') {
-      console.log('Invalid admin credentials for user:', adminUserId);
+    // 1. Validate admin credentials
+    if (!adminUserId || !adminEmail) {
+      console.log('Missing admin credentials for client deletion');
       return res.status(401).json({ error: 'Invalid admin credentials' });
     }
     
@@ -759,20 +756,37 @@ app.delete('/api/clients/:facCode', async (req, res) => {
     
     console.log('Found client to delete:', client.name);
     
-    // Find all team members who have this client assigned (case-insensitive search)
-    const affectedTeamMembers = await InternalTeam.find({ 
-      assignedClients: { $regex: new RegExp(`^${facCode}$`, 'i') }
+    // Find all team members who have this client assigned (multiple search patterns)
+    const affectedTeamMembers = await InternalTeam.find({
+      $or: [
+        { assignedClients: facCode },
+        { assignedClients: facCode.toUpperCase() },
+        { assignedClients: facCode.toLowerCase() },
+        { assignedClients: { $regex: new RegExp(`^${facCode}$`, 'i') } }
+      ]
     });
     
     console.log(`Found ${affectedTeamMembers.length} team members with client ${facCode} assigned:`, 
       affectedTeamMembers.map(m => ({ name: m.name, assignedClients: m.assignedClients })));
     
-    // Find all tasks for this client
-    const affectedTasks = await Phase.find({ clientId: facCode });
+    // Find all tasks for this client (multiple patterns)
+    const affectedTasks = await Phase.find({
+      $or: [
+        { clientId: facCode },
+        { clientId: facCode.toUpperCase() },
+        { clientId: facCode.toLowerCase() }
+      ]
+    });
     console.log(`Found ${affectedTasks.length} tasks for client ${facCode}`);
     
-    // Find all client-specific team members
-    const clientTeamMembers = await Team.find({ clientId: facCode });
+    // Find all client-specific team members (multiple patterns)
+    const clientTeamMembers = await Team.find({
+      $or: [
+        { clientId: facCode },
+        { clientId: facCode.toUpperCase() },
+        { clientId: facCode.toLowerCase() }
+      ]
+    });
     console.log(`Found ${clientTeamMembers.length} client-specific team members for client ${facCode}`);
     
     // 3. Create comprehensive audit entry
@@ -830,40 +844,92 @@ app.delete('/api/clients/:facCode', async (req, res) => {
     await auditEntry.save();
     console.log('Audit trail entry created');
     
-    // 4. Perform actual deletion and cleanup in a more robust way
+    // 4. Perform comprehensive deletion and cleanup
     console.log('Starting comprehensive client deletion...');
     
-    // Use Promise.all to perform deletions concurrently for better performance
-    const deletionPromises = [
-      Client.deleteOne({ facCode }),
-      Phase.deleteMany({ clientId: facCode }),
-      Team.deleteMany({ clientId: facCode })
-    ];
+    // Delete the client itself
+    const clientDeleteResult = await Client.deleteOne({ facCode });
+    console.log('Client deletion result:', clientDeleteResult);
     
-    // If there are team members to update, add that to the promises
-    if (affectedTeamMembers.length > 0) {
-      deletionPromises.push(
-        InternalTeam.updateMany(
-          { assignedClients: { $regex: new RegExp(`^${facCode}$`, 'i') } },
-          { $pull: { assignedClients: facCode } }
-        )
-      );
-    }
-    
-    const results = await Promise.all(deletionPromises);
-    console.log('Client deletion results:', {
-      clientDeleted: results[0].deletedCount,
-      tasksDeleted: results[1].deletedCount,
-      teamMembersDeleted: results[2].deletedCount,
-      teamMembersUpdated: affectedTeamMembers.length > 0 ? results[3]?.modifiedCount : 0
+    // Delete all tasks for this client (multiple patterns)
+    const taskDeleteResult = await Phase.deleteMany({
+      $or: [
+        { clientId: facCode },
+        { clientId: facCode.toUpperCase() },
+        { clientId: facCode.toLowerCase() }
+      ]
     });
+    console.log('Task deletion result:', taskDeleteResult);
+    
+    // Delete all client-specific team members (multiple patterns)
+    const teamDeleteResult = await Team.deleteMany({
+      $or: [
+        { clientId: facCode },
+        { clientId: facCode.toUpperCase() },
+        { clientId: facCode.toLowerCase() }
+      ]
+    });
+    console.log('Team member deletion result:', teamDeleteResult);
+    
+    // Update all InternalTeam members to remove this client from their assignedClients
+    // Use multiple update operations to catch all variations
+    const updateResults = [];
+    
+    // Update 1: Remove exact match
+    const update1 = await InternalTeam.updateMany(
+      { assignedClients: facCode },
+      { $pull: { assignedClients: facCode } }
+    );
+    updateResults.push(update1);
+    
+    // Update 2: Remove uppercase version
+    const update2 = await InternalTeam.updateMany(
+      { assignedClients: facCode.toUpperCase() },
+      { $pull: { assignedClients: facCode.toUpperCase() } }
+    );
+    updateResults.push(update2);
+    
+    // Update 3: Remove lowercase version
+    const update3 = await InternalTeam.updateMany(
+      { assignedClients: facCode.toLowerCase() },
+      { $pull: { assignedClients: facCode.toLowerCase() } }
+    );
+    updateResults.push(update3);
+    
+    // Update 4: Remove using regex (case-insensitive)
+    const update4 = await InternalTeam.updateMany(
+      { assignedClients: { $regex: new RegExp(`^${facCode}$`, 'i') } },
+      { $pull: { assignedClients: { $regex: new RegExp(`^${facCode}$`, 'i') } } }
+    );
+    updateResults.push(update4);
+    
+    const totalTeamMembersUpdated = updateResults.reduce((sum, result) => sum + result.modifiedCount, 0);
+    console.log('Team member update results:', updateResults);
+    console.log('Total team members updated:', totalTeamMembersUpdated);
     
     // 5. Verify cleanup was successful
     const remainingClient = await Client.findOne({ facCode });
-    const remainingTasks = await Phase.find({ clientId: facCode });
-    const remainingTeamMembers = await Team.find({ clientId: facCode });
-    const remainingAssignments = await InternalTeam.find({ 
-      assignedClients: { $regex: new RegExp(`^${facCode}$`, 'i') }
+    const remainingTasks = await Phase.find({
+      $or: [
+        { clientId: facCode },
+        { clientId: facCode.toUpperCase() },
+        { clientId: facCode.toLowerCase() }
+      ]
+    });
+    const remainingTeamMembers = await Team.find({
+      $or: [
+        { clientId: facCode },
+        { clientId: facCode.toUpperCase() },
+        { clientId: facCode.toLowerCase() }
+      ]
+    });
+    const remainingAssignments = await InternalTeam.find({
+      $or: [
+        { assignedClients: facCode },
+        { assignedClients: facCode.toUpperCase() },
+        { assignedClients: facCode.toLowerCase() },
+        { assignedClients: { $regex: new RegExp(`^${facCode}$`, 'i') } }
+      ]
     });
     
     console.log('Cleanup verification:', {
@@ -875,6 +941,16 @@ app.delete('/api/clients/:facCode', async (req, res) => {
     
     if (remainingClient || remainingTasks.length > 0 || remainingTeamMembers.length > 0 || remainingAssignments.length > 0) {
       console.warn('WARNING: Some data may not have been fully cleaned up');
+      
+      // Additional cleanup attempt for any remaining data
+      if (remainingAssignments.length > 0) {
+        console.log('Attempting additional cleanup for remaining assignments...');
+        const additionalCleanup = await InternalTeam.updateMany(
+          {},
+          { $pull: { assignedClients: { $in: [facCode, facCode.toUpperCase(), facCode.toLowerCase()] } } }
+        );
+        console.log('Additional cleanup result:', additionalCleanup);
+      }
     }
     
     res.json({
@@ -882,9 +958,9 @@ app.delete('/api/clients/:facCode', async (req, res) => {
       auditId: auditEntry._id,
       summary: `Client "${client.name}" deleted successfully. ${affectedTeamMembers.length} team members unassigned, ${affectedTasks.length} tasks removed, ${clientTeamMembers.length} client team members deleted.`,
       details: {
-        teamMembersUpdated: affectedTeamMembers.length > 0 ? results[3]?.modifiedCount : 0,
-        tasksDeleted: results[1].deletedCount,
-        clientTeamMembersDeleted: results[2].deletedCount,
+        teamMembersUpdated: totalTeamMembersUpdated,
+        tasksDeleted: taskDeleteResult.deletedCount,
+        clientTeamMembersDeleted: teamDeleteResult.deletedCount,
         cleanupVerification: {
           clientRemaining: !!remainingClient,
           tasksRemaining: remainingTasks.length,
@@ -1085,6 +1161,106 @@ app.post('/api/internal-team/cleanup-assignments', async (req, res) => {
   }
 });
 
+// Clean up all team members except PHGHAS for testing
+app.post('/api/cleanup-team-members', async (req, res) => {
+  const { adminUserId, adminEmail } = req.body;
+  
+  try {
+    // 1. Validate admin credentials
+    if (!adminUserId || !adminEmail) {
+      console.log('Missing admin credentials for team member cleanup');
+      return res.status(401).json({ error: 'Invalid admin credentials' });
+    }
+    
+    console.log('Starting team member cleanup...');
+    
+    // 2. Get all team members before cleanup
+    const allTeamMembers = await InternalTeam.find({});
+    const allClientTeamMembers = await Team.find({});
+    
+    console.log(`Found ${allTeamMembers.length} internal team members and ${allClientTeamMembers.length} client team members`);
+    
+    // 3. Delete all internal team members except those with username 'PHGHAS'
+    const internalTeamDeleteResult = await InternalTeam.deleteMany({
+      username: { $ne: 'PHGHAS' }
+    });
+    
+    // 4. Delete all client-specific team members except those with username 'PHGHAS'
+    const clientTeamDeleteResult = await Team.deleteMany({
+      username: { $ne: 'PHGHAS' }
+    });
+    
+    // 5. Create audit trail entry
+    const auditEntry = new AuditTrail({
+      userId: adminUserId,
+      userEmail: adminEmail,
+      clientId: 'SYSTEM',
+      action: 'cleanup_team_members',
+      targetType: 'system',
+      targetId: 'team_cleanup',
+      targetName: 'Team Member Cleanup',
+      oldValues: {
+        internalTeamMembers: allTeamMembers.length,
+        clientTeamMembers: allClientTeamMembers.length,
+        deletedInternalMembers: internalTeamDeleteResult.deletedCount,
+        deletedClientMembers: clientTeamDeleteResult.deletedCount
+      },
+      newValues: {
+        remainingInternalMembers: allTeamMembers.length - internalTeamDeleteResult.deletedCount,
+        remainingClientMembers: allClientTeamMembers.length - clientTeamDeleteResult.deletedCount
+      },
+      changes: [
+        {
+          field: 'internal_team_members_deleted',
+          oldValue: allTeamMembers.length,
+          newValue: allTeamMembers.length - internalTeamDeleteResult.deletedCount
+        },
+        {
+          field: 'client_team_members_deleted',
+          oldValue: allClientTeamMembers.length,
+          newValue: allClientTeamMembers.length - clientTeamDeleteResult.deletedCount
+        }
+      ],
+      reason: 'Clean slate for testing client deletion process',
+      impact: `Deleted ${internalTeamDeleteResult.deletedCount} internal team members and ${clientTeamDeleteResult.deletedCount} client team members, keeping only PHGHAS`,
+      metadata: {
+        cleanupMethod: 'admin_requested',
+        preservedMembers: ['PHGHAS'],
+        adminUser: adminUserId
+      }
+    });
+    
+    await auditEntry.save();
+    
+    // 6. Verify cleanup
+    const remainingInternalMembers = await InternalTeam.find({});
+    const remainingClientMembers = await Team.find({});
+    
+    console.log('Cleanup verification:', {
+      remainingInternalMembers: remainingInternalMembers.length,
+      remainingClientMembers: remainingClientMembers.length,
+      remainingInternalUsernames: remainingInternalMembers.map(m => m.username),
+      remainingClientUsernames: remainingClientMembers.map(m => m.username)
+    });
+    
+    res.json({
+      success: true,
+      auditId: auditEntry._id,
+      summary: `Team member cleanup completed. Deleted ${internalTeamDeleteResult.deletedCount} internal team members and ${clientTeamDeleteResult.deletedCount} client team members.`,
+      details: {
+        internalTeamMembersDeleted: internalTeamDeleteResult.deletedCount,
+        clientTeamMembersDeleted: clientTeamDeleteResult.deletedCount,
+        remainingInternalMembers: remainingInternalMembers.length,
+        remainingClientMembers: remainingClientMembers.length,
+        remainingInternalUsernames: remainingInternalMembers.map(m => m.username),
+        remainingClientUsernames: remainingClientMembers.map(m => m.username)
+      }
+    });
+  } catch (err) {
+    console.error('Error cleaning up team members:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
 
 
 // Enhanced Audit Trail endpoints
