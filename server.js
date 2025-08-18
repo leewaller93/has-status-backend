@@ -759,15 +759,21 @@ app.delete('/api/clients/:facCode', async (req, res) => {
     
     console.log('Found client to delete:', client.name);
     
-    // Find all team members who have this client assigned
+    // Find all team members who have this client assigned (case-insensitive search)
     const affectedTeamMembers = await InternalTeam.find({ 
-      assignedClients: facCode 
+      assignedClients: { $regex: new RegExp(`^${facCode}$`, 'i') }
     });
     
-    console.log(`Found ${affectedTeamMembers.length} team members with client ${facCode} assigned`);
+    console.log(`Found ${affectedTeamMembers.length} team members with client ${facCode} assigned:`, 
+      affectedTeamMembers.map(m => ({ name: m.name, assignedClients: m.assignedClients })));
     
+    // Find all tasks for this client
     const affectedTasks = await Phase.find({ clientId: facCode });
     console.log(`Found ${affectedTasks.length} tasks for client ${facCode}`);
+    
+    // Find all client-specific team members
+    const clientTeamMembers = await Team.find({ clientId: facCode });
+    console.log(`Found ${clientTeamMembers.length} client-specific team members for client ${facCode}`);
     
     // 3. Create comprehensive audit entry
     const auditEntry = new AuditTrail({
@@ -786,7 +792,8 @@ app.delete('/api/clients/:facCode', async (req, res) => {
           email: m.email,
           assignedClients: m.assignedClients
         })),
-        affectedTasks: affectedTasks.length
+        affectedTasks: affectedTasks.length,
+        clientTeamMembers: clientTeamMembers.length
       },
       newValues: null,
       changes: [
@@ -804,10 +811,15 @@ app.delete('/api/clients/:facCode', async (req, res) => {
           field: 'tasks_affected',
           oldValue: affectedTasks.length,
           newValue: 0
+        },
+        {
+          field: 'client_team_members_deleted',
+          oldValue: clientTeamMembers.length,
+          newValue: 0
         }
       ],
       reason: 'Client deletion requested by admin',
-      impact: `Deleted client "${client.name}" and removed ${affectedTeamMembers.length} team member assignments and ${affectedTasks.length} tasks`,
+      impact: `Deleted client "${client.name}" and removed ${affectedTeamMembers.length} team member assignments, ${affectedTasks.length} tasks, and ${clientTeamMembers.length} client team members`,
       metadata: {
         deletionMethod: 'admin_requested',
         cleanupPerformed: true,
@@ -832,7 +844,7 @@ app.delete('/api/clients/:facCode', async (req, res) => {
     if (affectedTeamMembers.length > 0) {
       deletionPromises.push(
         InternalTeam.updateMany(
-          { assignedClients: facCode },
+          { assignedClients: { $regex: new RegExp(`^${facCode}$`, 'i') } },
           { $pull: { assignedClients: facCode } }
         )
       );
@@ -846,14 +858,39 @@ app.delete('/api/clients/:facCode', async (req, res) => {
       teamMembersUpdated: affectedTeamMembers.length > 0 ? results[3]?.modifiedCount : 0
     });
     
+    // 5. Verify cleanup was successful
+    const remainingClient = await Client.findOne({ facCode });
+    const remainingTasks = await Phase.find({ clientId: facCode });
+    const remainingTeamMembers = await Team.find({ clientId: facCode });
+    const remainingAssignments = await InternalTeam.find({ 
+      assignedClients: { $regex: new RegExp(`^${facCode}$`, 'i') }
+    });
+    
+    console.log('Cleanup verification:', {
+      clientRemaining: !!remainingClient,
+      tasksRemaining: remainingTasks.length,
+      teamMembersRemaining: remainingTeamMembers.length,
+      assignmentsRemaining: remainingAssignments.length
+    });
+    
+    if (remainingClient || remainingTasks.length > 0 || remainingTeamMembers.length > 0 || remainingAssignments.length > 0) {
+      console.warn('WARNING: Some data may not have been fully cleaned up');
+    }
+    
     res.json({
       success: true,
       auditId: auditEntry._id,
-      summary: `Client "${client.name}" deleted successfully. ${affectedTeamMembers.length} team members unassigned, ${affectedTasks.length} tasks removed.`,
+      summary: `Client "${client.name}" deleted successfully. ${affectedTeamMembers.length} team members unassigned, ${affectedTasks.length} tasks removed, ${clientTeamMembers.length} client team members deleted.`,
       details: {
-        teamMembersUpdated: affectedTeamMembers.length,
-        tasksDeleted: affectedTasks.length,
-        clientTeamMembersDeleted: clientTeamDeleteResult.deletedCount
+        teamMembersUpdated: affectedTeamMembers.length > 0 ? results[3]?.modifiedCount : 0,
+        tasksDeleted: results[1].deletedCount,
+        clientTeamMembersDeleted: results[2].deletedCount,
+        cleanupVerification: {
+          clientRemaining: !!remainingClient,
+          tasksRemaining: remainingTasks.length,
+          teamMembersRemaining: remainingTeamMembers.length,
+          assignmentsRemaining: remainingAssignments.length
+        }
       }
     });
   } catch (err) {
