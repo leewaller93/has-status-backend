@@ -1167,13 +1167,13 @@ app.post('/api/ensure-default-team-members', async (req, res) => {
     console.log('Ensuring default team members exist...');
     
     // Check if Admin exists
-    let adminMember = await InternalTeam.findOne({ username: 'Admin' });
+    let adminMember = await InternalTeam.findOne({ username: 'admin' });
     if (!adminMember) {
       console.log('Creating Admin team member...');
       adminMember = new InternalTeam({
         name: 'Administrator',
-        username: 'Admin',
-        password: 'admin123', // This should be hashed in production
+        username: 'admin',
+        password: '12345', // Match the frontend TEST_USERS
         email: 'admin@phg.com',
         org: 'PHG',
         accessLevel: 'admin',
