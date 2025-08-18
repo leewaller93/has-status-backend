@@ -818,28 +818,33 @@ app.delete('/api/clients/:facCode', async (req, res) => {
     await auditEntry.save();
     console.log('Audit trail entry created');
     
-    // 4. Perform actual deletion and cleanup
-    await Client.deleteOne({ facCode });
-    console.log('Client deleted from database');
+    // 4. Perform actual deletion and cleanup in a more robust way
+    console.log('Starting comprehensive client deletion...');
     
-    // Remove client from team member assignments
+    // Use Promise.all to perform deletions concurrently for better performance
+    const deletionPromises = [
+      Client.deleteOne({ facCode }),
+      Phase.deleteMany({ clientId: facCode }),
+      Team.deleteMany({ clientId: facCode })
+    ];
+    
+    // If there are team members to update, add that to the promises
     if (affectedTeamMembers.length > 0) {
-      const updateResult = await InternalTeam.updateMany(
-        { assignedClients: facCode },
-        { $pull: { assignedClients: facCode } }
+      deletionPromises.push(
+        InternalTeam.updateMany(
+          { assignedClients: facCode },
+          { $pull: { assignedClients: facCode } }
+        )
       );
-      console.log(`Updated ${updateResult.modifiedCount} team members to remove client assignment`);
     }
     
-    // Delete all tasks for this client
-    if (affectedTasks.length > 0) {
-      const deleteResult = await Phase.deleteMany({ clientId: facCode });
-      console.log(`Deleted ${deleteResult.deletedCount} tasks for client`);
-    }
-    
-    // Also delete any team members specific to this client
-    const clientTeamDeleteResult = await Team.deleteMany({ clientId: facCode });
-    console.log(`Deleted ${clientTeamDeleteResult.deletedCount} client-specific team members`);
+    const results = await Promise.all(deletionPromises);
+    console.log('Client deletion results:', {
+      clientDeleted: results[0].deletedCount,
+      tasksDeleted: results[1].deletedCount,
+      teamMembersDeleted: results[2].deletedCount,
+      teamMembersUpdated: affectedTeamMembers.length > 0 ? results[3]?.modifiedCount : 0
+    });
     
     res.json({
       success: true,
