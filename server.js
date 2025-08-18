@@ -1161,103 +1161,57 @@ app.post('/api/internal-team/cleanup-assignments', async (req, res) => {
   }
 });
 
-// Clean up all team members except PHGHAS for testing
-app.post('/api/cleanup-team-members', async (req, res) => {
-  const { adminUserId, adminEmail } = req.body;
-  
+// Ensure Admin and PHGHAS team members exist
+app.post('/api/ensure-default-team-members', async (req, res) => {
   try {
-    // 1. Validate admin credentials
-    if (!adminUserId || !adminEmail) {
-      console.log('Missing admin credentials for team member cleanup');
-      return res.status(401).json({ error: 'Invalid admin credentials' });
+    console.log('Ensuring default team members exist...');
+    
+    // Check if Admin exists
+    let adminMember = await InternalTeam.findOne({ username: 'Admin' });
+    if (!adminMember) {
+      console.log('Creating Admin team member...');
+      adminMember = new InternalTeam({
+        name: 'Administrator',
+        username: 'Admin',
+        password: 'admin123', // This should be hashed in production
+        email: 'admin@phg.com',
+        org: 'PHG',
+        accessLevel: 'admin',
+        assignedClients: []
+      });
+      await adminMember.save();
+      console.log('Admin team member created');
+    } else {
+      console.log('Admin team member already exists');
     }
     
-    console.log('Starting team member cleanup...');
-    
-    // 2. Get all team members before cleanup
-    const allTeamMembers = await InternalTeam.find({});
-    const allClientTeamMembers = await Team.find({});
-    
-    console.log(`Found ${allTeamMembers.length} internal team members and ${allClientTeamMembers.length} client team members`);
-    
-    // 3. Delete all internal team members except those with username 'PHGHAS'
-    const internalTeamDeleteResult = await InternalTeam.deleteMany({
-      username: { $ne: 'PHGHAS' }
-    });
-    
-    // 4. Delete all client-specific team members except those with username 'PHGHAS'
-    const clientTeamDeleteResult = await Team.deleteMany({
-      username: { $ne: 'PHGHAS' }
-    });
-    
-    // 5. Create audit trail entry
-    const auditEntry = new AuditTrail({
-      userId: adminUserId,
-      userEmail: adminEmail,
-      clientId: 'SYSTEM',
-      action: 'cleanup_team_members',
-      targetType: 'system',
-      targetId: 'team_cleanup',
-      targetName: 'Team Member Cleanup',
-      oldValues: {
-        internalTeamMembers: allTeamMembers.length,
-        clientTeamMembers: allClientTeamMembers.length,
-        deletedInternalMembers: internalTeamDeleteResult.deletedCount,
-        deletedClientMembers: clientTeamDeleteResult.deletedCount
-      },
-      newValues: {
-        remainingInternalMembers: allTeamMembers.length - internalTeamDeleteResult.deletedCount,
-        remainingClientMembers: allClientTeamMembers.length - clientTeamDeleteResult.deletedCount
-      },
-      changes: [
-        {
-          field: 'internal_team_members_deleted',
-          oldValue: allTeamMembers.length,
-          newValue: allTeamMembers.length - internalTeamDeleteResult.deletedCount
-        },
-        {
-          field: 'client_team_members_deleted',
-          oldValue: allClientTeamMembers.length,
-          newValue: allClientTeamMembers.length - clientTeamDeleteResult.deletedCount
-        }
-      ],
-      reason: 'Clean slate for testing client deletion process',
-      impact: `Deleted ${internalTeamDeleteResult.deletedCount} internal team members and ${clientTeamDeleteResult.deletedCount} client team members, keeping only PHGHAS`,
-      metadata: {
-        cleanupMethod: 'admin_requested',
-        preservedMembers: ['PHGHAS'],
-        adminUser: adminUserId
-      }
-    });
-    
-    await auditEntry.save();
-    
-    // 6. Verify cleanup
-    const remainingInternalMembers = await InternalTeam.find({});
-    const remainingClientMembers = await Team.find({});
-    
-    console.log('Cleanup verification:', {
-      remainingInternalMembers: remainingInternalMembers.length,
-      remainingClientMembers: remainingClientMembers.length,
-      remainingInternalUsernames: remainingInternalMembers.map(m => m.username),
-      remainingClientUsernames: remainingClientMembers.map(m => m.username)
-    });
+    // Check if PHGHAS exists
+    let phghasMember = await InternalTeam.findOne({ username: 'PHGHAS' });
+    if (!phghasMember) {
+      console.log('Creating PHGHAS team member...');
+      phghasMember = new InternalTeam({
+        name: 'PHG HAS',
+        username: 'PHGHAS',
+        password: 'phghas123', // This should be hashed in production
+        email: 'phghas@phg.com',
+        org: 'PHG',
+        accessLevel: 'employee',
+        assignedClients: []
+      });
+      await phghasMember.save();
+      console.log('PHGHAS team member created');
+    } else {
+      console.log('PHGHAS team member already exists');
+    }
     
     res.json({
       success: true,
-      auditId: auditEntry._id,
-      summary: `Team member cleanup completed. Deleted ${internalTeamDeleteResult.deletedCount} internal team members and ${clientTeamDeleteResult.deletedCount} client team members.`,
-      details: {
-        internalTeamMembersDeleted: internalTeamDeleteResult.deletedCount,
-        clientTeamMembersDeleted: clientTeamDeleteResult.deletedCount,
-        remainingInternalMembers: remainingInternalMembers.length,
-        remainingClientMembers: remainingClientMembers.length,
-        remainingInternalUsernames: remainingInternalMembers.map(m => m.username),
-        remainingClientUsernames: remainingClientMembers.map(m => m.username)
-      }
+      message: 'Default team members ensured',
+      admin: adminMember ? 'exists' : 'created',
+      phghas: phghasMember ? 'exists' : 'created'
     });
   } catch (err) {
-    console.error('Error cleaning up team members:', err);
+    console.error('Error ensuring default team members:', err);
     res.status(500).json({ error: err.message });
   }
 });
